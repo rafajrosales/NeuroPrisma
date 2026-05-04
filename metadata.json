@@ -1,0 +1,6 @@
+{
+  "name": "NeuroPrisma",
+  "description": "Una plataforma neuropsicológica avanzada diseñada para potenciar el enfoque, la regulación emocional y la organización. NeuroPrisma ofrece herramientas de análisis transversal de patrones afectivos, diarios introspectivos y planificación cognitiva, optimizadas para mentes neurodivergentes.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": []
+}

@@ -1,0 +1,262 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User specific configuration and profile data.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "phone": { "type": "string" },
+        "weight": { "type": "string" },
+        "height": { "type": "string" },
+        "birthDate": { "type": "string" },
+        "medicalNotes": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "pomodoroWorkLimit": { "type": "number" },
+            "pomodoroBreakLimit": { "type": "number" },
+            "highContrast": { "type": "boolean" },
+            "notificationsEnabled": { "type": "boolean" }
+          }
+        }
+      },
+      "required": ["uid", "email", "createdAt"]
+    },
+    "Event": {
+      "title": "Calendar Event",
+      "description": "An event or scheduled task in the calendar.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "start": { "type": "string", "format": "date-time" },
+        "end": { "type": "string", "format": "date-time" },
+        "allDay": { "type": "boolean" },
+        "alarmEnabled": { "type": "boolean" },
+        "alarmTime": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "completed", "cancelled"] }
+      },
+      "required": ["userId", "title", "start", "end", "createdAt"]
+    },
+    "FocusSession": {
+      "title": "Focus Session",
+      "description": "A record of a completed Pomodoro or focus session.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string", "enum": ["work", "short-break", "long-break"] },
+        "duration": { "type": "number" },
+        "startTime": { "type": "string", "format": "date-time" },
+        "endTime": { "type": "string", "format": "date-time" },
+        "completed": { "type": "boolean" }
+      },
+      "required": ["userId", "type", "duration", "startTime", "endTime"]
+    },
+    "PomodoroTemplate": {
+      "title": "Pomodoro Template",
+      "description": "A reusable pomodoro configuration (preset).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "workDuration": { "type": "number" },
+        "breakDuration": { "type": "number" },
+        "longBreakDuration": { "type": "number" },
+        "voiceEnabled": { "type": "boolean" },
+        "voiceName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "workDuration", "breakDuration", "createdAt"]
+    },
+    "PomodoroProtocol": {
+      "title": "Pomodoro Protocol (Sequence)",
+      "description": "A sequence of pomodoro steps (work/breaks) grouped as a single entity (class-like template).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "sessions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "enum": ["work", "break"] },
+              "duration": { "type": "number" },
+              "label": { "type": "string" }
+            }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "sessions", "createdAt"]
+    },
+    "EmotionalLog": {
+      "title": "Emotional Log",
+      "description": "User's emotional state registry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "primaryEmotion": { "type": "string" },
+        "secondaryEmotion": { "type": "string" },
+        "intensity": { "type": "number" },
+        "physiologicalSensations": { "type": "array", "items": { "type": "string" } },
+        "situation": { "type": "string" },
+        "automaticThought": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "primaryEmotion", "intensity", "timestamp"]
+    },
+    "DiaryEntry": {
+      "title": "Diary Entry",
+      "description": "User's journal entry for the day.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "content": { "type": "string" },
+        "mediaUrls": { "type": "array", "items": { "type": "string" } },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "content", "timestamp"]
+    },
+    "NutritionLog": {
+      "title": "Nutrition Log",
+      "description": "Record of food and water intake.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "mealType": { "type": "string", "enum": ["desayuno", "almuerzo", "comida", "cena", "snack", "suplemento", "hidratacion"] },
+        "description": { "type": "string" },
+        "calories": { "type": "number" },
+        "protein": { "type": "number" },
+        "carbs": { "type": "number" },
+        "fats": { "type": "number" },
+        "waterAmount": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "mealType", "description", "timestamp"]
+    },
+    "FoodItem": {
+      "title": "Food Item",
+      "description": "Database of allowed/forbidden foods per category.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "status": { "type": "string", "enum": ["permitido", "moderado", "prohibido"] },
+        "notes": { "type": "string" }
+      },
+      "required": ["userId", "name", "category", "status"]
+    },
+    "NutritionalDish": {
+      "title": "Nutritional Dish",
+      "description": "A curated meal/recipe consisting of specific food items.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "ingredients": { "type": "array", "items": { "type": "string" } },
+        "instructions": { "type": "string" },
+        "calories": { "type": "number" }
+      },
+      "required": ["userId", "name", "ingredients"]
+    },
+    "NutritionalPlan": {
+      "title": "Nutritional Plan",
+      "description": "Global guidelines and indications from the nutritionist.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "generalIndications": { "type": "string" },
+        "forbiddenGeneral": { "type": "array", "items": { "type": "string" } },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "generalIndications"]
+    },
+    "ExecutiveAnalysis": {
+      "title": "Executive Analysis [AI]",
+      "description": "AI-driven analysis of situations for ADHD users to help with prioritization and decision-making.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "situation": { "type": "string" },
+        "analysis": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "archived"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "situation", "analysis", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile and settings."
+    },
+    "/users/{userId}/events/{eventId}": {
+      "schema": "Event",
+      "description": "User's calendar events."
+    },
+    "/users/{userId}/emotionalLogs/{logId}": {
+      "schema": "EmotionalLog",
+      "description": "User's emotional state registry."
+    },
+    "/users/{userId}/diaryEntries/{entryId}": {
+      "schema": "DiaryEntry",
+      "description": "User's journal entry."
+    },
+    "/users/{userId}/focusSessions/{sessionId}": {
+      "schema": "FocusSession",
+      "description": "History of focus and break sessions."
+    },
+    "/users/{userId}/pomodoroTemplates/{templateId}": {
+      "schema": "PomodoroTemplate",
+      "description": "Saved reusable pomodoro routines."
+    },
+    "/users/{userId}/pomodoroProtocols/{protocolId}": {
+      "schema": "PomodoroProtocol",
+      "description": "Grouped sequences of pomodoro sessions for complex scheduling."
+    },
+    "/users/{userId}/nutritionLogs/{logId}": {
+      "schema": "NutritionLog",
+      "description": "User's food and hydration records."
+    },
+    "/users/{userId}/foodItems/{itemId}": {
+      "schema": "FoodItem",
+      "description": "User's categorized food database."
+    },
+    "/users/{userId}/nutritionalDishes/{dishId}": {
+      "schema": "NutritionalDish",
+      "description": "User's custom recipes/platters."
+    },
+    "/users/{userId}/nutritionalPlans/{planId}": {
+      "schema": "NutritionalPlan",
+      "description": "Strategic nutrition guidelines for the user."
+    },
+    "/users/{userId}/executiveAnalyses/{analysisId}": {
+      "schema": "ExecutiveAnalysis",
+      "description": "ADHD executive function coaching sessions via AI."
+    }
+  }
+}

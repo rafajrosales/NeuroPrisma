@@ -1,0 +1,193 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Common helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // User profiles
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) 
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasAll(['uid', 'email', 'createdAt'])
+        && request.resource.data.uid is string
+        && request.resource.data.email is string;
+      allow update: if isOwner(userId)
+        && request.resource.data.uid == request.auth.uid
+        && (request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'settings', 'displayName', 'photoURL', 'updatedAt',
+          'firstName', 'lastName', 'phone', 'weight', 'height', 'birthDate', 'medicalNotes'
+        ]));
+
+      // Events subcollection
+      match /events/{eventId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(eventId)
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.title is string
+          && request.resource.data.title.size() <= 200
+          && request.resource.data.status in ['pending', 'completed', 'cancelled'];
+        allow update: if isOwner(userId)
+          && (request.resource.data.diff(resource.data).affectedKeys().hasAny(['title', 'description', 'start', 'end', 'alarmEnabled', 'alarmTime', 'status', 'updatedAt']));
+        allow delete: if isOwner(userId);
+      }
+
+      // Focus sessions subcollection
+      match /focusSessions/{sessionId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(sessionId)
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.type in ['work', 'short-break', 'long-break'];
+        allow update: if isOwner(userId)
+          && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['completed', 'endTime']));
+      }
+
+      // Pomodoro Tasks subcollection
+      match /pomodoroTasks/{taskId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(taskId)
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.name is string
+          && request.resource.data.workDuration is number;
+        allow update: if isOwner(userId)
+          && (request.resource.data.diff(resource.data).affectedKeys().hasAny(['name', 'workDuration', 'breakDuration', 'announceInterval']));
+        allow delete: if isOwner(userId);
+      }
+
+      match /dayBlocks/{blockId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(blockId)
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.keys().hasAll(['name', 'events', 'createdAt']);
+        allow update: if isOwner(userId)
+          && (request.resource.data.diff(resource.data).affectedKeys().hasAny(['name', 'events']));
+        allow delete: if isOwner(userId);
+      }
+
+      match /weekBlocks/{blockId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(blockId)
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.keys().hasAll(['name', 'days', 'createdAt']);
+        allow update: if isOwner(userId)
+          && (request.resource.data.diff(resource.data).affectedKeys().hasAny(['name', 'days']));
+        allow delete: if isOwner(userId);
+      }
+
+      // Pomodoro protocols subcollection
+      match /pomodoroProtocols/{protocolId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(protocolId)
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.name is string
+          && request.resource.data.sessions is list;
+        allow update: if isOwner(userId)
+          && (request.resource.data.diff(resource.data).affectedKeys().hasAny(['name', 'sessions']));
+        allow delete: if isOwner(userId);
+      }
+
+      // Emotional Logs subcollection
+      match /emotionalLogs/{logId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(logId)
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.primaryEmotion is string
+          && request.resource.data.intensity is number
+          && request.resource.data.timestamp is timestamp;
+        allow delete: if isOwner(userId);
+      }
+
+      // Diary Entries subcollection
+      match /diaryEntries/{entryId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(entryId)
+          && request.resource.data.userId == request.auth.uid
+          && (request.resource.data.content is string || (request.resource.data.mediaUrls is list && request.resource.data.mediaUrls.size() > 0))
+          && request.resource.data.timestamp is timestamp;
+        allow delete: if isOwner(userId);
+      }
+
+      // Nutrition Logs subcollection
+      match /nutritionLogs/{logId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(logId)
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.mealType in ['desayuno', 'almuerzo', 'comida', 'cena', 'snack', 'suplemento', 'hidratacion']
+          && request.resource.data.description is string
+          && request.resource.data.timestamp is timestamp;
+        allow delete: if isOwner(userId);
+      }
+
+      // Food Database subcollection
+      match /foodItems/{itemId} {
+        allow list, get: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && isValidId(itemId)
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.name is string
+          && request.resource.data.category is string
+          && request.resource.data.status in ['permitido', 'moderado', 'prohibido'];
+        allow delete: if isOwner(userId);
+      }
+
+      // Nutritional Dishes subcollection
+      match /nutritionalDishes/{dishId} {
+        allow list, get: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && isValidId(dishId)
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.name is string
+          && request.resource.data.ingredients is list;
+        allow delete: if isOwner(userId);
+      }
+
+      // Nutritional Plan subcollection
+      match /nutritionalPlans/{planId} {
+        allow list, get: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && isValidId(planId)
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.generalIndications is string;
+        allow delete: if isOwner(userId);
+      }
+
+      // Executive Analysis subcollection [AI]
+      match /executiveAnalyses/{analysisId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(analysisId)
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.situation is string
+          && request.resource.data.analysis is string;
+        allow update: if isOwner(userId)
+          && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']));
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}
