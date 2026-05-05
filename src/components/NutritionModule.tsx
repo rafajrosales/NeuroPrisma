@@ -913,6 +913,12 @@ export default function NutritionModule({ user }: { user: User }) {
       
       const inFridge = fridge.map(f => f.name);
       
+      if (allowed.length === 0) {
+        alert("Primero debes importar o agregar alimentos a tu lista de 'Alimentos Permitidos' en la pestaña respectiva.");
+        setIsGenerating(false);
+        return;
+      }
+      
       const suggestions = await getNutritionalSuggestions(
         allowed, 
         allForbidden,
@@ -955,6 +961,12 @@ export default function NutritionModule({ user }: { user: User }) {
       ]));
       
       const inFridge = fridge.map(f => f.name);
+      
+      if (allowed.length === 0) {
+        alert("Primero debes importar o agregar alimentos a tu lista de 'Alimentos Permitidos' en la pestaña respectiva.");
+        setIsGeneratingMarket(false);
+        return;
+      }
       
       const suggestions = await getWeeklyGrocerySuggestions(
         allowed, 

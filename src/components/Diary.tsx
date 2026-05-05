@@ -31,7 +31,12 @@ export default function Diary({ user }: { user: User }) {
       const logs = snapshot.docs.map(doc => doc.data());
       
       const draft = await getAIDiaryDraft(logs);
-      setContent(draft);
+      
+      if (draft.startsWith("Error") || draft.includes("Configuración de IA necesaria")) {
+        alert(draft);
+      } else {
+        setContent(draft);
+      }
     } catch (error) {
       console.error("error drafting:", error);
     } finally {

@@ -1,43 +1,48 @@
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
+const apiKey = process.env.GEMINI_API_KEY || '';
+console.log("AI Service: API Key present?", !!apiKey);
+
+const ai = new GoogleGenAI({ apiKey });
 
 export async function getNeuropsychologistInterpretation(logs: any[]) {
-  if (!process.env.GEMINI_API_KEY) return "Configuración de IA necesaria.";
+  if (!apiKey) return "Error: Clave de IA no detectada (C-001). Configúrala en Settings.";
   
   const prompt = `Actúa como un experto neuropsicólogo especializado en regulación emocional. Basado en estos registros emocionales del usuario: ${JSON.stringify(logs)}, proporciona un análisis breve, clínico, empático y constructivo. Incluye: (1) Interpretación de tendencias, (2) Sugerencias prácticas (trabajo cognitivo/conductual), (3) Una pregunta reflexiva. Usa un tono profesional pero cercano, evitando tecnicismos excesivos.`;
 
   try {
+    console.log("Calling Gemini API for interpretation...");
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemini-1.5-flash",
       contents: prompt,
     });
     return response.text || "No se pudo generar la interpretación.";
   } catch (err) {
     console.error("Error calling Gemini API:", err);
-    return "Error de conexión con la IA. Verifica tu API Key.";
+    return `Error de conexión con la IA (C-002): ${err instanceof Error ? err.message : String(err)}`;
   }
 }
 
 export async function getAIDiaryDraft(logs: any[]) {
-  if (!process.env.GEMINI_API_KEY) return "No se pudo generar el borrador.";
+  if (!apiKey) return "Error: Clave de IA no detectada (C-001).";
   
   const prompt = `Actúa como un diario introspectivo inteligente. Basado en los registros emocionales recientes del usuario: ${JSON.stringify(logs)}, escribe un primer borrador de una entrada de diario en primera persona. El tono debe ser reflexivo, honesto y terapéutico. Ayuda al usuario a poner en palabras lo que pudo haber sentido, dejando espacio para que él lo complete o corrija. No uses títulos ni formatos de carta, solo el cuerpo del texto del diario. Máximo 150 palabras.`;
 
   try {
+    console.log("Calling Gemini API for diary draft...");
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemini-1.5-flash",
       contents: prompt,
     });
     return response.text || "Error al redactar el borrador.";
   } catch (err) {
     console.error("Error calling Gemini API:", err);
-    return "Error de conexión con la IA. Verifica tu API Key.";
+    return `Error de conexión con la IA (C-002): ${err instanceof Error ? err.message : String(err)}`;
   }
 }
 
 export async function getNutritionalSuggestions(allowedFoods: string[], forbiddenFoods: string[], portionPlan: any, mealType: string, fridgeItems: string[], strategy: 'strict_fridge' | 'market_allowed' = 'market_allowed') {
-  if (!process.env.GEMINI_API_KEY) return "Configuración de IA necesaria.";
+  if (!apiKey) return "Error: Clave de IA no detectada (C-001).";
 
   let strictInstructions = "";
   if (strategy === 'strict_fridge') {
@@ -83,8 +88,9 @@ export async function getNutritionalSuggestions(allowedFoods: string[], forbidde
   Responde SOLO con el JSON, sin texto adicional.`;
 
   try {
+    console.log("Calling Gemini API for nutritional suggestions...");
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemini-1.5-flash",
       contents: prompt,
     });
 
@@ -93,13 +99,13 @@ export async function getNutritionalSuggestions(allowedFoods: string[], forbidde
     const parsed = JSON.parse(cleanText);
     return Array.isArray(parsed) ? parsed : [];
   } catch (e) {
-    console.error("Error parsing AI response:", e);
-    return [];
+    console.error("Error with Gemini AI or parsing response (nutritional):", e);
+    return `Error: ${e instanceof Error ? e.message : String(e)}`;
   }
 }
 
 export async function getWeeklyGrocerySuggestions(allowedFoods: string[], forbiddenFoods: string[], fridgeItems: string[], portionPlan: any) {
-  if (!process.env.GEMINI_API_KEY) return "Configuración de IA necesaria.";
+  if (!apiKey) return "Error: Clave de IA no detectada (C-001).";
 
   let prompt = `Actúa como un experto neuropsicólogo con especialidad en nutrición metabólica para perfiles TDAH/Autismo y Diabetes.
   
@@ -124,8 +130,9 @@ export async function getWeeklyGrocerySuggestions(allowedFoods: string[], forbid
   Responde SOLO con el JSON, sin texto adicional ni backticks de markdown.`;
 
   try {
+    console.log("Calling Gemini API for weekly groceries...");
     const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
+      model: "gemini-1.5-flash",
       contents: prompt,
     });
 
@@ -134,7 +141,7 @@ export async function getWeeklyGrocerySuggestions(allowedFoods: string[], forbid
     const parsed = JSON.parse(cleanText);
     return Array.isArray(parsed) ? parsed : [];
   } catch (e) {
-    console.error("Error parsing AI response:", e);
-    return [];
+    console.error("Error with Gemini AI or parsing response (groceries):", e);
+    return `Error: ${e instanceof Error ? e.message : String(e)}`;
   }
 }

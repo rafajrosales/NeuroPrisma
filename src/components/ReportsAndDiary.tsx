@@ -59,7 +59,13 @@ export default function ReportsAndDiary({ user }: { user: User }) {
     if (filteredLogs.length === 0) return;
     setLoading(true);
     const analysis = await getNeuropsychologistInterpretation(filteredLogs);
-    setInterpretation(analysis);
+    
+    if (analysis.startsWith("Error") || analysis.includes("Configuración de IA necesaria")) {
+      alert(analysis);
+    } else {
+      setInterpretation(analysis);
+    }
+    
     setLoading(false);
   };
 
