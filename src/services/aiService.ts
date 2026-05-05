@@ -1,19 +1,18 @@
 import { GoogleGenAI } from "@google/genai";
 
 function getApiKey() {
-  // En AI Studio, intentamos obtenerla de process.env (inyectada por Vite define o el entorno)
-  // o de import.meta.env (estándar de Vite)
-  const key = process.env.GEMINI_API_KEY || 
-              (import.meta as any).env.VITE_GEMINI_API_KEY || 
-              (import.meta as any).env.GEMINI_API_KEY || 
+  // Vite reemplazará estas variables en tiempo de compilación si están en 'define' o '.env'
+  const key = (import.meta as any).env.VITE_GEMINI_API_KEY || 
+              (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '') || 
               '';
   return key;
 }
 
 export async function getNeuropsychologistInterpretation(logs: any[]) {
   const currentKey = getApiKey();
-  if (!currentKey) return "Error: Clave de IA no detectada (C-001). Ve a 'Settings' (arriba a la derecha), busca 'Secrets' o 'API Keys' y agrega una clave con el nombre 'GEMINI_API_KEY'.";
-  
+  if (!currentKey) {
+    return "Error C-001: No hay API Key configurada. Si estás en AI Studio, ve a 'Settings' (arriba a la derecha), busca 'Secrets' y añade una con nombre GEMINI_API_KEY. Si estás en Vercel, asegúrate de que sea VITE_GEMINI_API_KEY o actívala en 'Environment Variables'.";
+  }
   const ai = new GoogleGenAI({ apiKey: currentKey });
   const prompt = `Actúa como un experto neuropsicólogo especializado en regulación emocional. Basado en estos registros emocionales del usuario: ${JSON.stringify(logs)}, proporciona un análisis breve, clínico, empático y constructivo. Incluye: (1) Interpretación de tendencias, (2) Sugerencias prácticas (trabajo cognitivo/conductual), (3) Una pregunta reflexiva. Usa un tono profesional pero cercano, evitando tecnicismos excesivos.`;
 
@@ -32,7 +31,9 @@ export async function getNeuropsychologistInterpretation(logs: any[]) {
 
 export async function getAIDiaryDraft(logs: any[]) {
   const currentKey = getApiKey();
-  if (!currentKey) return "Error: Clave de IA no detectada (C-001).";
+  if (!currentKey) {
+    return "Error C-001: No hay API Key configurada. Si estás en AI Studio, ve a 'Settings' (arriba a la derecha), busca 'Secrets' y añade una con nombre GEMINI_API_KEY.";
+  }
   
   const ai = new GoogleGenAI({ apiKey: currentKey });
   const prompt = `Actúa como un diario introspectivo inteligente. Basado en los registros emocionales recientes del usuario: ${JSON.stringify(logs)}, escribe un primer borrador de una entrada de diario en primera persona. El tono debe ser reflexivo, honesto y terapéutico. Ayuda al usuario a poner en palabras lo que pudo haber sentido, dejando espacio para que él lo complete o corrija. No uses títulos ni formatos de carta, solo el cuerpo del texto del diario. Máximo 150 palabras.`;
@@ -52,7 +53,9 @@ export async function getAIDiaryDraft(logs: any[]) {
 
 export async function getNutritionalSuggestions(allowedFoods: string[], forbiddenFoods: string[], portionPlan: any, mealType: string, fridgeItems: string[], strategy: 'strict_fridge' | 'market_allowed' = 'market_allowed') {
   const currentKey = getApiKey();
-  if (!currentKey) return "Error: Clave de IA no detectada (C-001).";
+  if (!currentKey) {
+    return "Error C-001: No hay API Key configurada. Si estás en AI Studio, ve a 'Settings' (arriba a la derecha), busca 'Secrets' y añade una con nombre GEMINI_API_KEY.";
+  }
 
   const ai = new GoogleGenAI({ apiKey: currentKey });
   let strictInstructions = "";
@@ -117,7 +120,9 @@ export async function getNutritionalSuggestions(allowedFoods: string[], forbidde
 
 export async function getWeeklyGrocerySuggestions(allowedFoods: string[], forbiddenFoods: string[], fridgeItems: string[], portionPlan: any) {
   const currentKey = getApiKey();
-  if (!currentKey) return "Error: Clave de IA no detectada (C-001).";
+  if (!currentKey) {
+    return "Error C-001: No hay API Key configurada. Si estás en AI Studio, ve a 'Settings' (arriba a la derecha), busca 'Secrets' y añade una con nombre GEMINI_API_KEY.";
+  }
 
   const ai = new GoogleGenAI({ apiKey: currentKey });
   let prompt = `Actúa como un experto neuropsicólogo con especialidad en nutrición metabólica para perfiles TDAH/Autismo y Diabetes.
