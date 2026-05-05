@@ -920,6 +920,13 @@ export default function NutritionModule({ user }: { user: User }) {
         selectedMealType,
         inFridge
       );
+      
+      if (typeof suggestions === 'string') {
+        alert(suggestions);
+        setIsGenerating(false);
+        return;
+      }
+      
       if (Array.isArray(suggestions) && suggestions.length > 0) {
         setSuggestedDishes(suggestions);
       } else {
@@ -955,6 +962,12 @@ export default function NutritionModule({ user }: { user: User }) {
         inFridge,
         plan?.portions || INITIAL_PORTIONS
       );
+      
+      if (typeof suggestions === 'string') {
+        alert(suggestions);
+        setIsGeneratingMarket(false);
+        return;
+      }
       
       if (Array.isArray(suggestions) && suggestions.length > 0) {
         const batch = writeBatch(db);
@@ -1039,6 +1052,12 @@ export default function NutritionModule({ user }: { user: User }) {
         inFridge,
         strategy
       );
+      
+      if (typeof suggestions === 'string') {
+        alert(suggestions);
+        setIsGenerating(false);
+        return;
+      }
       
       if (Array.isArray(suggestions) && suggestions.length > 0) {
         // Si el usuario eligió "solo con lo que hay", el platillo debe ir directo a la cocina.
