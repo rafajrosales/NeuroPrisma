@@ -892,11 +892,16 @@ export default function NutritionModule({ user }: { user: User }) {
   const handleGenerateSuggestions = async () => {
     setIsGenerating(true);
     try {
-      // Pass the name and the notes (which contain the calculated grams/portions) to the AI
       const allowed = foods
         .filter(f => f.status === 'permitido')
         .map(f => `${f.name} (Recomendación de porción: ${f.notes || 'al gusto'})`);
       
+      if (allowed.length === 0) {
+        alert("No tienes alimentos marcados como 'permitido'. Ve al catálogo para organizar tu despensa primero.");
+        setIsGenerating(false);
+        return;
+      }
+
       const forbidden = foods
         .filter(f => f.status === 'prohibido')
         .map(f => f.name);
@@ -915,8 +920,10 @@ export default function NutritionModule({ user }: { user: User }) {
         selectedMealType,
         inFridge
       );
-      if (Array.isArray(suggestions)) {
+      if (Array.isArray(suggestions) && suggestions.length > 0) {
         setSuggestedDishes(suggestions);
+      } else {
+        alert("Hubo un problema al generar los platillos con IA. Por favor, intenta de nuevo.");
       }
     } catch (err) {
       console.error("Error generating suggestions:", err);
@@ -1033,7 +1040,7 @@ export default function NutritionModule({ user }: { user: User }) {
         strategy
       );
       
-      if (Array.isArray(suggestions)) {
+      if (Array.isArray(suggestions) && suggestions.length > 0) {
         // Si el usuario eligió "solo con lo que hay", el platillo debe ir directo a la cocina.
         // Si eligió "ir al mercado", se comporta como sugerencia normal (agrega a templates y lista de mercado).
         setSuggestedDishes(suggestions.map((s: any) => ({ ...s, isFromFridge: !wantToBuy })));
@@ -1043,6 +1050,8 @@ export default function NutritionModule({ user }: { user: User }) {
         } else {
           alert("¡Platillos generados! Estas opciones usan solo lo que tienes, y se enviarán directamente a tu cocina.");
         }
+      } else {
+         alert("Hubo un error al generar las sugerencias. Por favor, asegúrate de tener suficientes alimentos permitidos y vuelve a intentar.");
       }
     } catch (err) {
       console.error("Error generating suggestions from fridge:", err);
@@ -1829,7 +1838,7 @@ export default function NutritionModule({ user }: { user: User }) {
                       <button 
                         type="button"
                         onClick={generateDishFromFridgeIngredients} 
-                        disabled={isGenerating || fridge.length === 0}
+                        disabled={isGenerating}
                         className="w-full py-4 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-30 flex items-center justify-center gap-2"
                       >
                         {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
@@ -1838,7 +1847,7 @@ export default function NutritionModule({ user }: { user: User }) {
                       <button 
                         type="button"
                         onClick={handleGenerateSuggestions} 
-                        disabled={isGenerating || foods.filter(f => f.status === 'permitido').length === 0}
+                        disabled={isGenerating}
                         className="w-full py-3 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl transition-all disabled:opacity-30 flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest border border-indigo-100"
                       >
                         {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}

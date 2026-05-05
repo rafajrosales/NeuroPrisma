@@ -82,7 +82,8 @@ export async function getNutritionalSuggestions(allowedFoods: string[], forbidde
   try {
     const text = response.text || "[]";
     const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleanText);
+    const parsed = JSON.parse(cleanText);
+    return Array.isArray(parsed) ? parsed : [];
   } catch (e) {
     console.error("Error parsing AI response:", e);
     return [];
@@ -122,7 +123,8 @@ export async function getWeeklyGrocerySuggestions(allowedFoods: string[], forbid
   try {
     const text = response.text || "[]";
     const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleanText);
+    const parsed = JSON.parse(cleanText);
+    return Array.isArray(parsed) ? parsed : [];
   } catch (e) {
     console.error("Error parsing AI response:", e);
     return [];
