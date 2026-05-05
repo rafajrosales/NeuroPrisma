@@ -196,46 +196,46 @@ export default function Pomodoro({ user, onScheduleBlock }: PomodoroProps) {
              style={{ width: `${(timeLeft / ((type === 'work' ? workTime : breakTime) * 60)) * 100}%` }}
            />
 
-           <div className="flex-1 flex flex-col items-center justify-center p-8 sm:p-12 min-h-[400px]">
-              <div className={cn(
-                "px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-[0.3em] mb-8 border",
-                type === 'work' ? "bg-primary-light text-primary border-primary/20" : "bg-emerald-50 text-emerald-600 border-emerald-200"
-              )}>
-                 {type === 'work' ? 'Estado de Concentración' : 'Recarga de Energía'}
-              </div>
-              
-              <div className="text-center relative">
-                 <div className="text-[130px] sm:text-[160px] font-mono font-bold text-text-main leading-none tracking-tight tabular-nums animate-in fade-in zoom-in duration-500">
-                    {formatDuration(timeLeft)}
-                 </div>
-                 {taskName && (
-                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-4 text-sm font-bold text-text-muted uppercase tracking-[0.2em] flex items-center justify-center gap-2">
-                     <div className="w-1.5 h-1.5 rounded-full bg-primary" /> {taskName}
-                   </motion.div>
-                 )}
-              </div>
+            <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-12 min-h-[350px] sm:min-h-[400px]">
+               <div className={cn(
+                 "px-4 py-1.5 rounded-full text-[9px] sm:text-[10px] font-bold uppercase tracking-[0.3em] mb-6 sm:mb-8 border",
+                 type === 'work' ? "bg-primary-light text-primary border-primary/20" : "bg-emerald-50 text-emerald-600 border-emerald-200"
+               )}>
+                  {type === 'work' ? 'Estado de Concentración' : 'Recarga de Energía'}
+               </div>
+               
+               <div className="text-center relative w-full">
+                  <div className="text-[20vw] sm:text-[130px] lg:text-[160px] font-mono font-bold text-text-main leading-none tracking-tighter tabular-nums animate-in fade-in zoom-in duration-500">
+                     {formatDuration(timeLeft)}
+                  </div>
+                  {taskName && (
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-4 text-[10px] sm:text-sm font-bold text-text-muted uppercase tracking-[0.2em] flex items-center justify-center gap-2 px-4">
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" /> <span className="line-clamp-1">{taskName}</span>
+                    </motion.div>
+                  )}
+               </div>
 
-              <div className="mt-12 flex items-center gap-8">
-                 <button 
-                    onClick={() => { speak(isActive ? "Pausado" : "Iniciando"); toggle(); }}
-                    className={cn(
-                      "w-24 h-24 rounded-full flex items-center justify-center transition-all active:scale-90 hover:scale-105 shadow-2xl",
-                      isActive 
-                        ? "bg-text-main text-white shadow-text-main/30" 
-                        : (type === 'work' ? "bg-primary text-white shadow-primary/40" : "bg-emerald-600 text-white shadow-emerald-600/40")
-                    )}
-                 >
-                    {isActive ? <Pause className="w-10 h-10 fill-current" /> : <Play className="w-10 h-10 fill-current ml-1" />}
-                 </button>
-                 <button 
-                    onClick={() => { speak("Reset."); reset(); }}
-                    className="w-16 h-16 rounded-full bg-background border border-border text-text-muted flex items-center justify-center hover:bg-border transition-all active:rotate-180"
-                    title="Reiniciar Sesión"
-                 >
-                    <RotateCcw className="w-6 h-6" />
-                 </button>
-              </div>
-           </div>
+               <div className="mt-8 sm:mt-12 flex items-center gap-6 sm:gap-8">
+                  <button 
+                     onClick={() => { speak(isActive ? "Pausado" : "Iniciando"); toggle(); }}
+                     className={cn(
+                       "w-20 h-20 sm:w-24 sm:h-24 rounded-full flex items-center justify-center transition-all active:scale-90 hover:scale-105 shadow-2xl",
+                       isActive 
+                         ? "bg-text-main text-white shadow-text-main/30" 
+                         : (type === 'work' ? "bg-primary text-white shadow-primary/40" : "bg-emerald-600 text-white shadow-emerald-600/40")
+                     )}
+                  >
+                     {isActive ? <Pause className="w-8 h-8 sm:w-10 sm:h-10 fill-current" /> : <Play className="w-8 h-8 sm:w-10 sm:h-10 fill-current ml-1" />}
+                  </button>
+                  <button 
+                     onClick={() => { speak("Reset."); reset(); }}
+                     className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-background border border-border text-text-muted flex items-center justify-center hover:bg-border transition-all active:rotate-180"
+                     title="Reiniciar Sesión"
+                  >
+                     <RotateCcw className="w-5 h-5 sm:w-6 sm:h-6" />
+                  </button>
+               </div>
+            </div>
 
            {/* Audio Assist Bar */}
            <div className="bg-background/80 border-t border-border grid grid-cols-1 sm:grid-cols-2 gap-px divide-x divide-border">

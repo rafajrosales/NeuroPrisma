@@ -23,11 +23,25 @@
 
 @layer base {
   body {
-    @apply antialiased text-text-main bg-background font-sans;
+    @apply antialiased text-text-main bg-background font-sans overflow-x-hidden;
+    /* Prevent pull-to-refresh on mobile if desired, but let's keep it standard for now */
+    touch-action: manipulation;
   }
 }
 
 @layer utilities {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .h-dynamic-screen {
+    height: 100dvh;
+  }
+  .min-h-dynamic-screen {
+    min-height: 100dvh;
+  }
   .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
     height: 6px;

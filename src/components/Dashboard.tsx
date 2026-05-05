@@ -74,7 +74,7 @@ export default function Dashboard({ user }: DashboardProps) {
   };
 
   return (
-    <div className="h-screen bg-background flex flex-col font-sans overflow-hidden text-text-main">
+    <div className="h-dynamic-screen bg-background flex flex-col font-sans overflow-hidden text-text-main shadow-inner relative">
       <AlarmAlert 
         event={activeAlarm} 
         onDismiss={dismissAlarm} 
@@ -82,29 +82,29 @@ export default function Dashboard({ user }: DashboardProps) {
       />
 
       {/* Header */}
-      <header className="h-20 bg-surface border-b border-border px-6 sm:px-10 flex items-center justify-between shrink-0 z-20 shadow-sm">
+      <header className="h-16 md:h-20 bg-surface border-b border-border px-4 sm:px-10 flex items-center justify-between shrink-0 z-40 shadow-sm pt-safe">
         <div className="flex items-center gap-4">
           <button 
             onClick={() => setCurrentView('dashboard')}
-            className="flex items-center gap-4 transition-all hover:scale-[1.02] group"
+            className="flex items-center gap-3 transition-all hover:scale-[1.02] group"
           >
-            <Logo size="sm" showText />
+            <Logo size="xs" showText />
           </button>
         </div>
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-3 sm:gap-6">
           <button 
             onClick={() => setCurrentView('profile')}
-            className="hidden sm:flex items-center gap-3 bg-background border border-border rounded-2xl pl-2 pr-5 py-2 transition-all hover:border-primary/30 hover:bg-white group"
+            className="flex items-center gap-2 bg-background border border-border rounded-xl px-2 py-1.5 md:py-2 md:pl-2 md:pr-5 transition-all hover:border-primary/30 hover:bg-white group"
           >
             <div className="relative">
-               <img src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} className="w-8 h-8 rounded-xl border border-border flex items-center justify-center overflow-hidden object-cover" alt="User" />
-               <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full shadow-sm" />
+               <img src={user.photoURL || `https://ui-avatars.com/api/?name=${user.displayName}`} className="w-6 h-6 md:w-8 md:h-8 rounded-lg md:rounded-xl border border-border flex items-center justify-center overflow-hidden object-cover" alt="User" />
+               <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-white rounded-full shadow-sm" />
             </div>
-            <span className="text-xs font-bold text-text-main tracking-tight group-hover:text-primary transition-colors">{user.displayName}</span>
+            <span className="hidden sm:inline text-xs font-bold text-text-main tracking-tight group-hover:text-primary transition-colors">{user.displayName}</span>
           </button>
           <button 
             onClick={() => signOut(auth)}
-            className="p-2.5 text-text-muted hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+            className="p-2 text-text-muted hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
             title="Cerrar Sesión"
           >
             <LogOut className="w-5 h-5" />
@@ -153,7 +153,7 @@ export default function Dashboard({ user }: DashboardProps) {
 
         {/* Main Content */}
         <main className="flex-1 bg-background flex flex-col overflow-hidden relative">
-          <div className="flex-1 overflow-y-auto p-6 sm:p-10 custom-scrollbar pb-32 md:pb-10">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-10 custom-scrollbar pb-32 md:pb-10">
             {currentView === 'profile' && <Profile user={user} />}
             {currentView === 'nutrition' && <NutritionModule user={user} />}
             {currentView === 'executive' && <ExecutiveNavigator user={user} />}
@@ -220,77 +220,77 @@ export default function Dashboard({ user }: DashboardProps) {
             {currentView === 'pomodoro' && <Pomodoro user={user} onScheduleBlock={handleSchedulePomodoro} />}
 
             {currentView === 'dashboard' && (
-              <div className="max-w-6xl mx-auto space-y-12 animate-in fade-in duration-700">
+              <div className="max-w-6xl mx-auto space-y-8 sm:space-y-12 animate-in fade-in duration-700">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-6">
                   <div className="flex-1">
-                    <h2 className="text-sm font-bold text-primary uppercase tracking-[0.2em] mb-2">Hola, {user.displayName?.split(' ')[0] || 'Usuario'}</h2>
-                    <h2 className="text-4xl font-black text-text-main tracking-tighter">Centro de Control</h2>
-                    <div className="text-text-muted font-bold text-sm uppercase tracking-widest mt-2 flex items-center gap-2">
-                       <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse outline outline-4 outline-emerald-500/10" /> Sincronización Neuronal Activa
+                    <h2 className="text-[10px] font-bold text-primary uppercase tracking-[0.2em] mb-2 px-1">Hola, {user.displayName?.split(' ')[0] || 'Usuario'}</h2>
+                    <h2 className="text-3xl sm:text-4xl font-black text-text-main tracking-tighter">Centro de Control</h2>
+                    <div className="text-text-muted font-bold text-[10px] sm:text-sm uppercase tracking-widest mt-2 flex items-center gap-2">
+                       <div className="w-1.5 h-1.5 sm:w-2 h-2 rounded-full bg-emerald-500 animate-pulse outline outline-4 outline-emerald-500/10" /> Sincronización Neuronal Activa
                     </div>
                   </div>
-                  <div className="md:hidden w-full bg-surface p-6 rounded-2xl border border-border mt-4">
-                    <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2 flex items-center gap-2">
+                  <div className="md:hidden w-full bg-surface p-5 rounded-3xl border border-border mt-2 shadow-sm">
+                    <p className="text-[9px] font-bold text-primary uppercase tracking-widest mb-1.5 flex items-center gap-2">
                        <Sparkles className="w-3 h-3" /> Insight Diario
                     </p>
-                    <p className="text-sm text-text-main leading-relaxed font-bold italic">
+                    <p className="text-xs text-text-main leading-relaxed font-bold italic">
                       "{phrase}"
                     </p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                   <div className="lg:col-span-4 space-y-8">
-                     <div className="bg-text-main rounded-[40px] p-10 text-white shadow-2xl shadow-text-main/20 relative overflow-hidden group">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8 items-start">
+                   <div className="lg:col-span-4 space-y-6 sm:space-y-8">
+                     <div className="bg-text-main rounded-[2.5rem] p-8 sm:p-10 text-white shadow-2xl shadow-text-main/20 relative overflow-hidden group">
                         <div className="absolute -right-10 -bottom-10 w-40 h-40 bg-white/5 rounded-full blur-3xl group-hover:scale-125 transition-transform duration-1000" />
-                        <h4 className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/40 mb-8 border-b border-white/5 pb-4">Logros Hoy</h4>
-                        <div className="flex items-center gap-8">
-                           <div className="text-7xl font-bold font-mono tracking-tighter tabular-nums leading-none">
+                        <h4 className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/40 mb-6 border-b border-white/5 pb-4">Logros Hoy</h4>
+                        <div className="flex items-center gap-6 sm:gap-8">
+                           <div className="text-6xl sm:text-7xl font-bold font-mono tracking-tighter tabular-nums leading-none">
                               {events.filter(e => e.status === 'completed').length}
                            </div>
-                           <div className="w-px h-16 bg-white/10" />
-                           <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest leading-loose">
+                           <div className="w-px h-12 sm:h-16 bg-white/10" />
+                           <p className="text-[9px] sm:text-[10px] text-white/40 font-bold uppercase tracking-widest leading-loose">
                               Objetivos<br />Alcanzados
                            </p>
                         </div>
                      </div>
 
-                     <div className="bg-surface rounded-[40px] p-10 border border-border shadow-sm space-y-8 group transition-all hover:border-primary/20">
+                     <div className="bg-surface rounded-[2.5rem] p-8 sm:p-10 border border-border shadow-sm space-y-6 sm:space-y-8 group transition-all hover:border-primary/20">
                         <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600 border border-emerald-100 group-hover:rotate-12 transition-transform">
-                             <Sparkles className="w-6 h-6" />
+                          <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600 border border-emerald-100 group-hover:rotate-12 transition-transform">
+                             <Sparkles className="w-5 h-5" />
                           </div>
                           <div>
-                             <h4 className="text-lg font-black tracking-tight text-text-main leading-tight">Neuro-Tip</h4>
+                             <h4 className="text-md sm:text-lg font-black tracking-tight text-text-main leading-tight">Neuro-Tip</h4>
                              <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Mitigación Procrastinación</p>
                           </div>
                         </div>
-                        <p className="text-text-muted text-sm leading-relaxed font-medium italic">
+                        <p className="text-text-muted text-xs sm:text-sm leading-relaxed font-medium italic">
                           "La regla de los 2 minutos: Si te lleva menos de 120 segundos, ejecútalo ahora para hackear tu inercia ejecutiva."
                         </p>
                     </div>
                    </div>
 
-                   <div className="lg:col-span-8 bg-surface rounded-[40px] p-10 border border-border shadow-sm flex flex-col min-h-[500px]">
-                      <div className="flex items-center justify-between mb-10">
+                   <div className="lg:col-span-8 bg-surface rounded-[2.5rem] p-8 sm:p-10 border border-border shadow-sm flex flex-col min-h-[400px] sm:min-h-[500px]">
+                      <div className="flex items-center justify-between mb-8 sm:mb-10">
                          <div className="flex items-center gap-3">
                             <Clock className="w-5 h-5 text-primary" />
-                            <h4 className="text-xs font-bold uppercase tracking-[0.3em] text-text-muted">Mapa de Proximidad</h4>
+                            <h4 className="text-[10px] sm:text-xs font-bold uppercase tracking-[0.3em] text-text-muted">Mapa de Proximidad</h4>
                          </div>
-                         <button onClick={() => setCurrentView('calendar')} className="px-5 py-2.5 bg-background border border-border rounded-xl text-[10px] font-bold text-primary uppercase tracking-widest hover:bg-primary hover:text-white transition-all">Ver Calendario</button>
+                         <button onClick={() => setCurrentView('calendar')} className="px-4 py-2 sm:px-5 sm:py-2.5 bg-background border border-border rounded-xl text-[9px] sm:text-[10px] font-bold text-primary uppercase tracking-widest hover:bg-primary hover:text-white transition-all">Calendario</button>
                       </div>
                       
-                      <div className="flex-1 space-y-4">
+                      <div className="flex-1 space-y-3 sm:space-y-4">
                          {events.filter(e => e.status === 'pending').slice(0, 5).map(e => (
                            <motion.div 
                              key={e.id} whileHover={{ x: 5 }}
-                             className="flex items-center justify-between p-6 bg-background rounded-3xl border border-border hover:border-primary/20 transition-all group"
+                             className="flex items-center justify-between p-4 sm:p-6 bg-background rounded-2xl sm:rounded-3xl border border-border hover:border-primary/20 transition-all group"
                            >
-                              <div className="flex items-center gap-6">
-                                <div className="w-1.5 h-12 bg-primary rounded-full shadow-[0_0_10px_rgba(79,70,229,0.2)]" />
+                              <div className="flex items-center gap-4 sm:gap-6">
+                                <div className="w-1.5 h-10 sm:w-2 h-12 bg-primary rounded-full shadow-[0_0_10px_rgba(79,70,229,0.2)]" />
                                 <div>
-                                  <p className="text-lg font-bold text-text-main tracking-tight group-hover:text-primary transition-colors">{e.title}</p>
-                                  <p className="text-[10px] text-text-muted font-bold uppercase tracking-widest mt-1">
+                                  <p className="text-md sm:text-lg font-bold text-text-main tracking-tight group-hover:text-primary transition-colors line-clamp-1">{e.title}</p>
+                                  <p className="text-[9px] sm:text-[10px] text-text-muted font-bold uppercase tracking-widest mt-0.5">
                                      T-{new Date(e.start).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false})}
                                   </p>
                                 </div>
@@ -300,16 +300,16 @@ export default function Dashboard({ user }: DashboardProps) {
                                    speak("Excelente. Un bloque más fuera.");
                                    updateEventStatus(e.id, 'completed');
                                 }} 
-                                className="w-12 h-12 bg-white border border-border rounded-2xl flex items-center justify-center text-text-muted hover:text-emerald-500 hover:border-emerald-200 transition-all shadow-sm"
+                                className="w-10 h-10 sm:w-12 sm:h-12 bg-white border border-border rounded-xl sm:rounded-2xl flex items-center justify-center text-text-muted hover:text-emerald-500 hover:border-emerald-200 transition-all shadow-sm"
                               >
-                                <CheckCircle className="w-6 h-6" />
+                                 <CheckCircle className="w-5 h-5 sm:w-6 sm:h-6" />
                               </button>
                            </motion.div>
                          ))}
                          {events.filter(e => e.status === 'pending').length === 0 && (
                            <div className="flex-1 flex flex-col items-center justify-center py-20 opacity-20 grayscale">
-                              <LayoutDashboard className="w-16 h-16 mb-4" />
-                              <p className="text-[10px] font-bold text-text-muted uppercase tracking-[0.5em]">Limpieza Cognitiva Total</p>
+                              <LayoutDashboard className="w-12 h-12 sm:w-16 sm:h-16 mb-4" />
+                              <p className="text-[9px] sm:text-[10px] font-bold text-text-muted uppercase tracking-[0.5em]">Limpieza Cognitiva Total</p>
                            </div>
                          )}
                       </div>
@@ -322,15 +322,14 @@ export default function Dashboard({ user }: DashboardProps) {
       </div>
 
       {/* Mobile Nav */}
-      <footer className="md:hidden h-20 bg-surface border-t border-border flex items-center justify-around px-4 shrink-0 fixed bottom-0 left-0 w-full z-30 shadow-[0_-10px_30px_rgba(0,0,0,0.05)]">
-        <MobileNavItem icon={<LayoutDashboard />} active={currentView === 'dashboard'} onClick={() => setCurrentView('dashboard')} />
-        <MobileNavItem icon={<Clock />} active={currentView === 'pomodoro'} onClick={() => setCurrentView('pomodoro')} />
-        <MobileNavItem icon={<CalendarIcon />} active={currentView === 'calendar'} onClick={() => setCurrentView('calendar')} />
-        <MobileNavItem icon={<Zap />} active={currentView === 'executive'} onClick={() => setCurrentView('executive')} />
-        <MobileNavItem icon={<Heart />} active={currentView === 'emotions'} onClick={() => setCurrentView('emotions')} />
-        <MobileNavItem icon={<Utensils />} active={currentView === 'nutrition'} onClick={() => setCurrentView('nutrition')} />
-        <MobileNavItem icon={<Info />} active={currentView === 'about'} onClick={() => setCurrentView('about')} />
-        <MobileNavItem icon={<Settings />} active={currentView === 'settings'} onClick={() => setCurrentView('settings')} />
+      <footer className="md:hidden h-20 bg-surface border-t border-border flex items-center justify-around px-2 shrink-0 fixed bottom-0 left-0 w-full z-40 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] pb-safe">
+        <MobileNavItem icon={<LayoutDashboard />} label="Dashboard" active={currentView === 'dashboard'} onClick={() => setCurrentView('dashboard')} />
+        <MobileNavItem icon={<Clock />} label="Timer" active={currentView === 'pomodoro'} onClick={() => setCurrentView('pomodoro')} />
+        <MobileNavItem icon={<CalendarIcon />} label="Mapa" active={currentView === 'calendar'} onClick={() => setCurrentView('calendar')} />
+        <MobileNavItem icon={<Zap />} label="IA" active={currentView === 'executive'} onClick={() => setCurrentView('executive')} />
+        <MobileNavItem icon={<Heart />} label="Sentir" active={currentView === 'emotions'} onClick={() => setCurrentView('emotions')} />
+        <MobileNavItem icon={<Utensils />} label="Comer" active={currentView === 'nutrition'} onClick={() => setCurrentView('nutrition')} />
+        <MobileNavItem icon={<Settings />} label="Config" active={currentView === 'settings'} onClick={() => setCurrentView('settings')} />
       </footer>
     </div>
   );
@@ -353,18 +352,24 @@ function NavItem({ icon, label, active = false, onClick }: { icon: React.ReactNo
   );
 }
 
-function MobileNavItem({ icon, active = false, onClick }: { icon: React.ReactNode, active?: boolean, onClick: () => void }) {
+function MobileNavItem({ icon, label, active = false, onClick }: { icon: React.ReactNode, label: string, active?: boolean, onClick: () => void }) {
   return (
     <button 
       onClick={onClick}
       className={cn(
-        "p-3 rounded-2xl transition-all",
+        "flex flex-col items-center justify-center gap-1 flex-1 py-1 px-1 rounded-xl transition-all",
         active 
-          ? "bg-primary text-white shadow-xl shadow-primary/20 scale-110" 
-          : "text-text-muted hover:bg-background"
+          ? "text-primary bg-primary/5" 
+          : "text-text-muted"
       )}
     >
-      {React.cloneElement(icon as React.ReactElement<any>, { className: "w-6 h-6 shrink-0" })}
+      <div className={cn(
+        "p-2 rounded-xl transition-all",
+        active && "bg-primary text-white shadow-lg shadow-primary/20 scale-110"
+      )}>
+        {React.cloneElement(icon as React.ReactElement<any>, { className: cn("w-5 h-5 shrink-0", active ? "text-white" : "text-text-muted") })}
+      </div>
+      <span className={cn("text-[9px] font-bold uppercase tracking-tighter", active ? "text-primary opacity-100" : "opacity-60")}>{label}</span>
     </button>
   );
 }

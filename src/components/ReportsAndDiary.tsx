@@ -86,19 +86,19 @@ export default function ReportsAndDiary({ user }: { user: User }) {
   return (
     <div className="space-y-8 max-w-5xl mx-auto pb-24">
       {/* Homogeneous Tab Switcher */}
-      <div className="p-1.5 bg-surface border border-border rounded-2xl flex gap-1.5 shadow-sm">
+      <div className="p-1.5 bg-surface border border-border rounded-2xl flex gap-1 shadow-sm overflow-x-auto no-scrollbar sm:overflow-visible">
         {(['tracker', 'reports', 'diary'] as const).map((v) => (
           <button 
             key={v}
             onClick={() => { setView(v); setInterpretation(''); }} 
             className={cn(
-              "flex-1 px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-all",
+              "flex-1 min-w-[80px] sm:min-w-0 px-2 sm:px-6 py-3 rounded-xl text-[10px] sm:text-xs font-bold uppercase tracking-widest transition-all whitespace-nowrap",
               view === v 
                 ? "bg-primary text-white shadow-lg shadow-primary/20 scale-[1.02]" 
                 : "text-text-muted hover:bg-background hover:text-text-main"
             )}
           >
-            {v === 'tracker' ? 'Emoción' : v === 'reports' ? 'Análisis AI' : 'Diario'}
+            {v === 'tracker' ? 'Emoción' : v === 'reports' ? 'Análisis' : 'Diario'}
           </button>
         ))}
       </div>
