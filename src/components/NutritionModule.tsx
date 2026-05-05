@@ -374,6 +374,16 @@ export default function NutritionModule({ user }: { user: User }) {
   };
 
   // Shopping List Actions
+  const removeFromShoppingList = async (itemId: string) => {
+    try {
+      await deleteDoc(doc(db, 'users', user.uid, 'shoppingList', itemId));
+      setShoppingList(prev => prev.filter(item => item.id !== itemId));
+    } catch (err) {
+      console.error("Error removing from shopping list:", err);
+      handleFirestoreError(err, OperationType.DELETE, `users/${user.uid}/shoppingList/${itemId}`);
+    }
+  };
+
   const addToShoppingList = async (food: FoodItem, quantityOverride?: string) => {
     console.log("addToShoppingList called for:", food);
     if (shoppingList.some(item => item.foodId === food.id)) return;
@@ -1195,22 +1205,22 @@ export default function NutritionModule({ user }: { user: User }) {
     <button
       onClick={() => setActiveTab(id)}
       className={cn(
-        "flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl text-[10px] sm:text-xs font-bold uppercase tracking-widest transition-all w-full",
+        "flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl sm:rounded-2xl text-[10px] sm:text-xs font-bold uppercase tracking-widest transition-all",
         activeTab === id 
           ? "bg-primary text-white shadow-lg shadow-primary/20" 
           : "text-text-muted hover:bg-surface hover:text-text-main"
       )}
     >
-      <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-      <span className="truncate">{label}</span>
+      <Icon className="w-4 h-4 shrink-0" />
+      <span className={cn(activeTab === id ? "inline" : "hidden sm:inline")}>{label}</span>
     </button>
   );
 
   return (
     <div className="space-y-6 md:space-y-8 max-w-6xl mx-auto pb-24 px-2 sm:px-0">
       {/* Navigation Tabs */}
-      <div className="w-full flex justify-center mb-6">
-        <div className="grid grid-cols-3 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2 bg-surface p-1.5 sm:p-2 rounded-[1.5rem] sm:rounded-[2rem] border border-border shadow-sm w-full max-w-[600px]">
+      <div className="w-full flex justify-center mb-10 mt-4 overflow-hidden">
+        <div className="flex flex-wrap justify-center items-center gap-1.5 sm:gap-2 bg-surface p-1.5 sm:p-2 rounded-[2rem] border border-border shadow-md max-w-full">
           <TabButton id="mercado" label="Mercado" icon={ListChecks} />
           <TabButton id="cocina" label="Cocina" icon={Sparkles} />
           <TabButton id="refrigerador" label="Refri" icon={Package} />
@@ -1451,8 +1461,8 @@ export default function NutritionModule({ user }: { user: User }) {
                                       </span>
                                    </div>
                                    <button 
-                                    onClick={(e) => { e.stopPropagation(); deleteItem('shoppingList', item.id); }}
-                                    className="p-1.5 opacity-0 group-hover/item:opacity-40 hover:opacity-100 hover:text-red-600 transition-all"
+                                    onClick={(e) => { e.stopPropagation(); removeFromShoppingList(item.id); }}
+                                    className="p-1.5 opacity-40 hover:opacity-100 hover:text-red-600 transition-all sm:opacity-0 sm:group-hover/item:opacity-40 sm:hover:opacity-100"
                                    >
                                      <Trash2 className="w-4 h-4" />
                                    </button>
