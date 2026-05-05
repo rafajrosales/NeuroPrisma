@@ -8,7 +8,7 @@ import {
 import { db, doc, getDoc, updateDoc, handleFirestoreError, OperationType } from '../lib/firebase';
 import { collection, query, addDoc, getDocs, orderBy, deleteDoc, serverTimestamp, Timestamp, where, setDoc, writeBatch } from 'firebase/firestore';
 import { cn } from '../lib/utils';
-import { getNutritionalSuggestions } from '../services/aiService';
+import { getNutritionalSuggestions, getWeeklyGrocerySuggestions } from '../services/aiService';
 import { format, startOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'motion/react';
@@ -82,7 +82,7 @@ interface FridgeItem {
 }
 
 export default function NutritionModule({ user }: { user: User }) {
-  const [activeTab, setActiveTab] = useState<Tab>('mercado');
+  const [activeTab, setActiveTab] = useState<Tab>('cocina');
   const [foods, setFoods] = useState<FoodItem[]>([]);
   const [dishes, setDishes] = useState<NutritionalDish[]>([]);
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
@@ -91,11 +91,10 @@ export default function NutritionModule({ user }: { user: User }) {
   const [plan, setPlan] = useState<NutritionalPlan | null>(null);
   const [selectedMealType, setSelectedMealType] = useState<string>('comida');
   
-  const [marketSearch, setMarketSearch] = useState('');
-  
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingMarket, setIsGeneratingMarket] = useState(false);
   const [profile, setProfile] = useState<any>(null);
   
   const INITIAL_PORTIONS: PortionPlan[] = [
@@ -113,6 +112,7 @@ export default function NutritionModule({ user }: { user: User }) {
   const [planForm, setPlanForm] = useState({ indications: '', forbidden: '' });
   const [selectedCategory, setSelectedCategory] = useState(FOOD_CATEGORIES[0]);
   const [selectedStatus, setSelectedStatus] = useState<string | 'all'>('all');
+  const [marketSearch, setMarketSearch] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -371,13 +371,11 @@ export default function NutritionModule({ user }: { user: User }) {
 
   // Shopping List Actions
   const addToShoppingList = async (food: FoodItem) => {
+    console.log("addToShoppingList called for:", food);
     if (shoppingList.some(item => item.foodId === food.id)) return;
     
-    let portionInfo = food.notes ? `\nValor de 1 porción: ${food.notes}` : '';
-    let quantity = window.prompt(`¿Qué cantidad en TAZAS, PIEZAS o CUCHARADAS de "${food.name}" necesitas comprar?\n(Escribe la cantidad, ej. "2 tazas", "3 piezas", "0.5 tazas")${portionInfo}\n\nCalcularemos automáticamente los gramos o mililitros.`);
-    if (quantity === null) return; // User cancelled
-    
-    let finalName = getShoppingFinalName(food, quantity);
+    // Simplificación: omitir prompt para evitar problemas en iFrame
+    let finalName = food.name;
 
     try {
       const newItem = {
@@ -390,41 +388,62 @@ export default function NutritionModule({ user }: { user: User }) {
         createdAt: serverTimestamp()
       };
       const docRef = await addDoc(collection(db, 'users', user.uid, 'shoppingList'), newItem);
+      console.log("Added to firestore, docRef:", docRef.id);
       setShoppingList([...shoppingList, { id: docRef.id, ...newItem } as ShoppingItem]);
     } catch (err) {
+      console.error("Error adding to shopping list:", err);
       handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/shoppingList`);
     }
   };
 
-  const handleManualAddToMarket = async (itemName: string) => {
-    const existingFood = foods.find(f => f.name.toLowerCase() === itemName.toLowerCase());
-    
-    if (existingFood) {
-      if (existingFood.status === 'prohibido') {
-        alert("⚠️ Este alimento está en tu lista como PROHIBIDO.");
-        return;
-      }
-      await addToShoppingList(existingFood);
-    } else {
-      const quantity = window.prompt(`¿Qué cantidad de "${itemName}" necesitas?\n(Ej. "1 kg", "2 packs", "500g")`);
-      if (quantity === null) return;
 
-      try {
+  const handleManualAddToMarket = async (itemName: string) => {
+    if (!itemName || itemName.trim() === '') return;
+    const cleanName = itemName.trim();
+    setIsSaving(true);
+    try {
+        const existingFood = foods.find(f => f.name.toLowerCase() === cleanName.toLowerCase());
+        
+        // 1. Add to foodItems (the "master" list) if it doesn't exist
+        let foodId = existingFood?.id;
+        if (!existingFood) {
+            const foodDocRef = await addDoc(collection(db, 'users', user.uid, 'foodItems'), {
+                userId: user.uid,
+                name: cleanName,
+                category: 'Otros',
+                status: 'permitido'
+            });
+            foodId = foodDocRef.id;
+            setFoods(prev => [...prev, { id: foodId!, userId: user.uid, name: cleanName, category: 'Otros', status: 'permitido' } as FoodItem]);
+        }
+
+        // 2. Add to shoppingList
         const newItem = {
-          foodId: 'manual-' + Date.now(),
-          name: `${itemName} (${quantity})`,
+          foodId: foodId!,
+          name: cleanName,
           category: 'Otros',
-          dishName: 'Básicos',
           status: 'permitido',
           bought: false,
           createdAt: serverTimestamp()
         };
         const docRef = await addDoc(collection(db, 'users', user.uid, 'shoppingList'), newItem);
-        setShoppingList([...shoppingList, { id: docRef.id, ...newItem } as ShoppingItem]);
-        setMarketSearch('');
-      } catch (err) {
+        setShoppingList(prev => [...prev, { id: docRef.id, ...newItem } as ShoppingItem]);
+    } catch (err) {
+        console.error("Error adding manual item:", err);
+        alert(`Error al agregar "${cleanName}": ${err instanceof Error ? err.message : 'Error desconocido'}`);
         handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/shoppingList`);
-      }
+    } finally {
+        setIsSaving(false);
+    }
+  };
+
+  const handleDropShopping = (e: React.DragEvent) => {
+    e.preventDefault();
+    try {
+      const foodData = JSON.parse(e.dataTransfer.getData('text/plain'));
+      addToShoppingList(foodData);
+    } catch (err) {
+      console.error("Error parsing dragged data:", err);
     }
   };
 
@@ -485,12 +504,6 @@ export default function NutritionModule({ user }: { user: User }) {
   const clearBoughtItems = async () => {
     if (shoppingList.length === 0) return;
 
-    const confirmMessage = shoppingList.some(i => !i.bought) 
-      ? `Tienes ${shoppingList.filter(i => !i.bought).length} artículos sin marcar como comprados. ¿Deseas mover TODA la lista (${shoppingList.length} artículos) al refrigerador y finalizar la compra?`
-      : `¿Deseas mover los ${shoppingList.length} artículos al refrigerador y finalizar la compra?`;
-
-    if (!window.confirm(confirmMessage)) return;
-
     setIsSaving(true);
     try {
       const batch = writeBatch(db);
@@ -535,6 +548,82 @@ export default function NutritionModule({ user }: { user: User }) {
     setIsSaving(false);
   };
 
+  const deleteGroupFromShoppingList = async (groupName: string) => {
+    console.log(`[DEBUG] deleteGroupFromShoppingList CALLED for group:`, groupName);
+    
+    setIsSaving(true);
+    try {
+      const q = collection(db, 'users', user.uid, 'shoppingList');
+      const querySnapshot = await getDocs(q);
+      console.log(`[DEBUG] Fetched ${querySnapshot.size} documents.`);
+      
+      const batch = writeBatch(db);
+      let deletedCount = 0;
+
+      querySnapshot.forEach((docSnap) => {
+        const item = docSnap.data() as ShoppingItem;
+        const itemDishName = (item.dishName || 'Básicos').trim();
+        const targetGroupName = groupName.trim();
+        
+        if (itemDishName === targetGroupName) {
+           batch.delete(docSnap.ref);
+           deletedCount++;
+        }
+      });
+      
+      if (deletedCount > 0) {
+          await batch.commit();
+          setShoppingList(prev => prev.filter(i => (i.dishName || 'Básicos') !== groupName));
+          alert(`✅ ${deletedCount} productos de "${groupName}" eliminados.`);
+      } else {
+          alert(`No se encontraron productos para eliminar en el grupo "${groupName}".`);
+      }
+    } catch (err) {
+      console.error("[ERROR] catch en deleteGroupFromShoppingList:", err);
+      handleFirestoreError(err, OperationType.DELETE, `users/${user.uid}/shoppingList/deleteGroup`);
+    }
+    setIsSaving(false);
+  };
+
+  const moveGroupToFridge = async (groupName: string, items: ShoppingItem[]) => {
+    setIsSaving(true);
+    try {
+      const batch = writeBatch(db);
+      const newFridgeItems: FridgeItem[] = [];
+
+      for (const item of items) {
+        // Only if not already in fridge
+        const existsInFridge = fridge.some(f => 
+          f.foodId === item.foodId && (f as any).dishName === (item.dishName || 'Básicos')
+        );
+
+        if (!existsInFridge) {
+          const fridgeRef = doc(collection(db, 'users', user.uid, 'fridge'));
+          const fridgeData = {
+            foodId: item.foodId,
+            name: item.name,
+            category: item.category,
+            dishName: item.dishName || 'Básicos',
+            confirmed: false,
+            addedAt: serverTimestamp()
+          };
+          batch.set(fridgeRef, fridgeData);
+          newFridgeItems.push({ id: fridgeRef.id, ...fridgeData } as FridgeItem);
+        }
+        batch.delete(doc(db, 'users', user.uid, 'shoppingList', item.id));
+      }
+
+      await batch.commit();
+      setFridge(prev => [...prev, ...newFridgeItems]);
+      setShoppingList(prev => prev.filter(i => !items.some(gi => gi.id === i.id)));
+      
+      alert(`✅ Productos de "${groupName}" movidos al refrigerador.`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/fridge/moveGroup`);
+    }
+    setIsSaving(false);
+  };
+
   const consumeDishIngredientsFromFridge = async (dish: NutritionalDish) => {
     const toRemoveIndices: string[] = [];
     const removedNames: string[] = [];
@@ -566,9 +655,6 @@ export default function NutritionModule({ user }: { user: User }) {
       alert(`No se encontraron ingredientes de "${dish.name}" en tu refrigerador para consumir.`);
       return;
     }
-
-    const confirmConsume = window.confirm(`Vas a consumir (eliminar) los siguientes ingredientes de tu refrigerador al preparar el platillo:\n\n${removedNames.join(', ')}\n\n¿Deseas continuar?`);
-    if (!confirmConsume) return;
 
     setIsSaving(true);
     try {
@@ -639,9 +725,7 @@ export default function NutritionModule({ user }: { user: User }) {
       missingItems.forEach(food => {
         let quantity = food._recipeQty;
         if (!quantity) {
-          let portionInfo = food.notes ? `\nValor de 1 porción: ${food.notes}` : '';
-          quantity = window.prompt(`¿Qué cantidad en TAZAS, PIEZAS o CUCHARADAS de "${food.name}" necesitas para el platillo "${dish.name}"?\n(Escribe la cantidad, ej. "2 tazas", "3 piezas")${portionInfo}\n\nCalcularemos automáticamente los gramos o mililitros.`);
-          if (quantity === null) quantity = "";
+          quantity = "";
         }
         
         let finalName = getShoppingFinalName(food, quantity);
@@ -676,9 +760,6 @@ export default function NutritionModule({ user }: { user: User }) {
   };
 
   const resetKitchenSystem = async () => {
-    const confirm = window.confirm("⚠️ ¿ESTÁS SEGURO? Esta acción ELIMINARÁ permanentEMENTE:\n- Todos los alimentos del refrigerador\n- Todos los platillos guardados\n- Toda la lista del mercado\n\nEsto dejará el sistema totalmente en blanco para reprogramarlo.");
-    if (!confirm) return;
-
     setIsSaving(true);
     try {
       const batch = writeBatch(db);
@@ -816,10 +897,20 @@ export default function NutritionModule({ user }: { user: User }) {
         .filter(f => f.status === 'permitido')
         .map(f => `${f.name} (Recomendación de porción: ${f.notes || 'al gusto'})`);
       
+      const forbidden = foods
+        .filter(f => f.status === 'prohibido')
+        .map(f => f.name);
+      
+      const allForbidden = Array.from(new Set([
+        ...forbidden,
+        ...(plan?.forbiddenGeneral || [])
+      ]));
+      
       const inFridge = fridge.map(f => f.name);
       
       const suggestions = await getNutritionalSuggestions(
         allowed, 
+        allForbidden,
         plan?.portions || INITIAL_PORTIONS, 
         selectedMealType,
         inFridge
@@ -833,26 +924,190 @@ export default function NutritionModule({ user }: { user: User }) {
     setIsGenerating(false);
   };
 
-  const handleSaveSuggestedDish = async (dish: any) => {
+  const generateWeeklyGroceries = async () => {
+    setIsGeneratingMarket(true);
+    try {
+      const allowed = foods
+        .filter(f => f.status === 'permitido')
+        .map(f => f.name);
+      
+      const forbidden = foods
+        .filter(f => f.status === 'prohibido')
+        .map(f => f.name);
+      
+      const allForbidden = Array.from(new Set([
+        ...forbidden,
+        ...(plan?.forbiddenGeneral || [])
+      ]));
+      
+      const inFridge = fridge.map(f => f.name);
+      
+      const suggestions = await getWeeklyGrocerySuggestions(
+        allowed, 
+        allForbidden,
+        inFridge,
+        plan?.portions || INITIAL_PORTIONS
+      );
+      
+      if (Array.isArray(suggestions) && suggestions.length > 0) {
+        const batch = writeBatch(db);
+        const newShoppingItems: ShoppingItem[] = [];
+        
+        for (const item of suggestions) {
+           const itemName = typeof item === 'string' ? item : item.name;
+           const itemQuantity = typeof item === 'string' ? '' : (item.quantity ? ` - ${item.quantity}` : '');
+           if (inFridge.includes(itemName)) continue;
+           
+           let foodObj = foods.find(f => f.name.toLowerCase() === itemName.toLowerCase());
+           let foodId = foodObj?.id;
+           let category = foodObj?.category || 'Otros';
+           let status = foodObj?.status || 'permitido';
+           
+           if (!foodId) {
+             const customId = `custom_${Date.now()}_${Math.random().toString(36).substr(2,9)}`;
+             foodId = customId;
+           }
+
+           const docRef = doc(collection(db, 'users', user.uid, 'shoppingList'));
+           const newItem = {
+             foodId: foodId,
+             name: `${itemName}${itemQuantity}`,
+             category: category,
+             dishName: 'Sugerencia Semanal',
+             status: status,
+             bought: false,
+             createdAt: serverTimestamp()
+           };
+           batch.set(docRef, newItem);
+           newShoppingItems.push({ id: docRef.id, ...newItem } as ShoppingItem);
+        }
+        
+        await batch.commit();
+        setShoppingList(prev => [...prev, ...newShoppingItems]);
+        alert("¡Lista de mercado sugerida agregada con éxito!");
+      } else {
+        alert("No se obtuvieron sugerencias. Intenta nuevamente.");
+      }
+
+    } catch (err) {
+      console.error(err);
+      alert("Error al generar lista de mercado.");
+    } finally {
+      setIsGeneratingMarket(false);
+    }
+  };
+
+  const generateDishFromFridgeIngredients = async () => {
+    setIsGenerating(true);
+    try {
+      const allowed = foods
+        .filter(f => f.status === 'permitido')
+        .map(f => `${f.name} (Recomendación de porción: ${f.notes || 'al gusto'})`);
+      
+      const forbidden = foods
+        .filter(f => f.status === 'prohibido')
+        .map(f => f.name);
+      
+      const allForbidden = Array.from(new Set([
+        ...forbidden,
+        ...(plan?.forbiddenGeneral || [])
+      ]));
+      
+      const inFridge = fridge.map(f => f.name);
+      
+      if (inFridge.length === 0) {
+        alert("Tu refrigerador está completamente vacío. No puedes crear platillos si no tienes alimentos.");
+        setIsGenerating(false);
+        return;
+      }
+      
+      const wantToBuy = window.confirm("¿Deseas ir a comprar al mercado lo que te falte (se generarán platillos ideales) o prefieres preparar algo EXCLUSIVAMENTE con lo que hay en tu refrigerador?\n\n- ACEPTAR: Ir al mercado por lo que falta.\n- CANCELAR: Preparar solo con lo que hay.");
+      const strategy = wantToBuy ? 'market_allowed' : 'strict_fridge';
+      
+      const suggestions = await getNutritionalSuggestions(
+        allowed, 
+        allForbidden,
+        plan?.portions || INITIAL_PORTIONS, 
+        selectedMealType,
+        inFridge,
+        strategy
+      );
+      
+      if (Array.isArray(suggestions)) {
+        // Si el usuario eligió "solo con lo que hay", el platillo debe ir directo a la cocina.
+        // Si eligió "ir al mercado", se comporta como sugerencia normal (agrega a templates y lista de mercado).
+        setSuggestedDishes(suggestions.map((s: any) => ({ ...s, isFromFridge: !wantToBuy })));
+        
+        if (wantToBuy) {
+          alert("¡Platillos generados! Como decidiste ir al mercado por lo que falta, estos platillos se guardarán como templates y lo faltante se enviará a tu Lista del Mercado al añadirlos.");
+        } else {
+          alert("¡Platillos generados! Estas opciones usan solo lo que tienes, y se enviarán directamente a tu cocina.");
+        }
+      }
+    } catch (err) {
+      console.error("Error generating suggestions from fridge:", err);
+    }
+    setIsGenerating(false);
+  };
+
+  const handleSaveSuggestedDish = async (dish: any, isFromFridge: boolean = false) => {
     setIsSaving(true);
     let newDish: any = null;
     try {
-      const docRef = await addDoc(collection(db, 'users', user.uid, 'nutritionalDishes'), {
-        userId: user.uid,
-        name: dish.name,
-        ingredients: dish.ingredients,
-        instructions: dish.instructions,
-        status: 'template'
-      });
-      newDish = {
-        id: docRef.id,
-        userId: user.uid,
-        name: dish.name,
-        ingredients: dish.ingredients,
-        instructions: dish.instructions,
-        status: 'template'
-      };
-      setSuggestedDishes(prev => prev.filter(d => d.name !== dish.name));
+      if (isFromFridge) {
+        // Enviar a la cocina exactamente el mismo proceso que cuando mandamos del refri
+        const matchedFridgeItems: FridgeItem[] = [];
+        const dishIngredients = dish.ingredients || [];
+        
+        for (const ing of dishIngredients) {
+          const ingName = typeof ing === 'string' ? ing : ing.name;
+          const fItem = fridge.find(f => f.name.toLowerCase() === ingName.toLowerCase() && (!f.dishName || f.dishName === 'Básicos'));
+          if (fItem) matchedFridgeItems.push(fItem);
+        }
+
+        const batch = writeBatch(db);
+        const dishRef = doc(collection(db, 'users', user.uid, 'nutritionalDishes'));
+        const dishData = {
+          userId: user.uid,
+          name: dish.name,
+          ingredients: matchedFridgeItems.length > 0 
+            ? matchedFridgeItems.map(i => ({ name: i.name, quantity: '1 u.' }))
+            : dishIngredients.map((i: any) => ({ name: typeof i === 'string' ? i : i.name, quantity: typeof i === 'string' ? '' : i.quantity })),
+          instructions: dish.instructions || '',
+          status: 'preparando',
+          createdAt: serverTimestamp()
+        };
+
+        batch.set(dishRef, dishData);
+
+        for (const item of matchedFridgeItems) {
+          batch.delete(doc(db, 'users', user.uid, 'fridge', item.id));
+        }
+
+        await batch.commit();
+
+        setDishes(prev => [...prev, { id: dishRef.id, ...dishData } as NutritionalDish]);
+        setFridge(prev => prev.filter(f => !matchedFridgeItems.some(mi => mi.id === f.id)));
+        setSuggestedDishes(prev => prev.filter(d => d.name !== dish.name));
+        setActiveTab('cocina');
+      } else {
+        const docRef = await addDoc(collection(db, 'users', user.uid, 'nutritionalDishes'), {
+          userId: user.uid,
+          name: dish.name,
+          ingredients: dish.ingredients,
+          instructions: dish.instructions,
+          status: 'template'
+        });
+        newDish = {
+          id: docRef.id,
+          userId: user.uid,
+          name: dish.name,
+          ingredients: dish.ingredients,
+          instructions: dish.instructions,
+          status: 'template'
+        };
+        setSuggestedDishes(prev => prev.filter(d => d.name !== dish.name));
+      }
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/nutritionalDishes`);
     }
@@ -897,72 +1152,80 @@ export default function NutritionModule({ user }: { user: User }) {
       <AnimatePresence mode="wait">
         {activeTab === 'mercado' && (
           <motion.div key="mercado" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-             {/* List of Foods to Add */}
-             <div className="lg:col-span-1 bg-surface p-6 rounded-[32px] border border-border shadow-sm flex flex-col h-[600px]">
-                <div className="flex items-center justify-between mb-6 pb-4 border-b border-border">
-                  <div className="flex items-center gap-3">
-                    <Plus className="w-5 h-5 text-primary" />
-                    <h3 className="text-sm font-black text-text-main uppercase tracking-widest">Añadir al Mercado</h3>
+             {/* Catálogo de Alimentos (Izquierda) */}
+             <div className="lg:col-span-1 bg-surface p-6 rounded-[32px] border border-border shadow-sm flex flex-col h-[700px]">
+                <div className="mb-6 space-y-4">
+                  <div>
+                    <h3 className="text-sm font-black text-primary uppercase tracking-widest mb-1">Catálogo</h3>
+                    <p className="text-[10px] text-text-muted leading-tight">Busca y toca para añadir a tu lista de compras</p>
                   </div>
+                  
+                  {/* Buscador */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+                    <input 
+                      type="text"
+                      placeholder="Buscar alimento..."
+                      value={marketSearch}
+                      onChange={(e) => setMarketSearch(e.target.value)}
+                      className="w-full pl-10 pr-4 py-3 bg-background border border-border rounded-2xl text-xs font-bold focus:border-primary/40 focus:ring-0 transition-all outline-none"
+                    />
+                  </div>
+
+                  {/* Botón para Añadir Personalizado si no hay resultados */}
+                  {marketSearch && !foods.some(f => f.name.toLowerCase().includes(marketSearch.toLowerCase())) && (
+                    <button 
+                      onClick={() => {
+                        handleManualAddToMarket(marketSearch);
+                        setMarketSearch('');
+                      }}
+                      className="w-full p-3 bg-primary/10 border border-primary/20 text-primary rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-primary/20 transition-all flex items-center justify-center gap-2"
+                    >
+                      <Plus className="w-3 h-3" /> Añadir "{marketSearch}" como nuevo
+                    </button>
+                  )}
                 </div>
 
-                <div className="mb-4">
-                  <div className="relative group">
-                    <Search className={cn(
-                      "absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 transition-colors",
-                      marketSearch ? "text-primary" : "text-text-muted"
-                    )} />
-                    <input 
-                      type="text" 
-                      placeholder="Buscar o escribir nuevo..."
-                      value={marketSearch}
-                      onChange={e => setMarketSearch(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && marketSearch.trim()) {
-                          handleManualAddToMarket(marketSearch.trim());
-                        }
-                      }}
-                      className="w-full pl-11 pr-4 py-3.5 bg-background border border-border rounded-2xl text-xs font-bold focus:ring-4 focus:ring-primary/5 focus:border-primary transition-all"
-                    />
-                    {marketSearch.trim() && !foods.find(f => f.name.toLowerCase() === marketSearch.trim().toLowerCase()) && (
-                      <button 
-                        type="button"
-                        onClick={() => handleManualAddToMarket(marketSearch.trim())}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary text-white rounded-xl shadow-lg shadow-primary/20 hover:scale-105 transition-all"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
                 <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar">
                   {FOOD_CATEGORIES.map(cat => {
-                    const group = foods.filter(f => 
-                      f.category === cat && 
-                      f.status !== 'prohibido' &&
-                      (marketSearch === '' || f.name.toLowerCase().includes(marketSearch.toLowerCase()))
+                    // Combinamos alimentos de la DB con los iniciales si no están en la DB
+                    const dbGroup = foods.filter(f => f.category === cat && f.status !== 'prohibido');
+                    
+                    // Filtrado por buscador
+                    const filteredGroup = dbGroup.filter(f => 
+                      f.name.toLowerCase().includes(marketSearch.toLowerCase())
                     );
-                    if (group.length === 0) return null;
+
+                    if (filteredGroup.length === 0) return null;
+
                     return (
                       <div key={cat} className="space-y-2">
-                        <h4 className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em]">{cat}</h4>
-                        <div className="space-y-1">
-                          {group.map(food => {
+                        <h4 className="text-[9px] font-black text-text-muted/40 uppercase tracking-[0.2em]">{cat}</h4>
+                        <div className="grid grid-cols-1 gap-1">
+                          {filteredGroup.map(food => {
                             const inFridge = fridge.some(f => f.foodId === food.id);
+                            const inShopping = shoppingList.some(s => s.foodId === food.id);
                             return (
                               <button 
                                 key={food.id}
                                 onClick={() => addToShoppingList(food)}
                                 className={cn(
-                                  "w-full flex items-center justify-between p-3 bg-background border border-border rounded-xl hover:border-primary/40 transition-all group",
-                                  inFridge && "opacity-40"
+                                  "w-full flex items-center justify-between p-3 bg-background border border-border rounded-2xl hover:border-primary/40 hover:bg-primary/5 transition-all text-left group",
+                                  inFridge && "opacity-40",
+                                  inShopping && "border-primary/30 bg-primary/5"
                                 )}
                               >
-                                <div className="flex flex-col text-left">
-                                  <span className="text-xs font-bold text-text-main">{food.name} {inFridge && "🏡"}</span>
-                                  {food.notes && <span className="text-[8px] font-black text-text-muted uppercase tracking-tighter">{food.notes}</span>}
+                                <div className="flex flex-col">
+                                  <span className={cn("text-xs font-bold text-text-main group-hover:text-primary transition-colors", inShopping && "text-primary")}>
+                                    {food.name}
+                                  </span>
+                                  {inFridge && <span className="text-[8px] font-black text-emerald-500 uppercase">En casa 🏡</span>}
                                 </div>
-                                <Plus className="w-3.5 h-3.5 text-text-muted group-hover:text-primary transition-colors" />
+                                {inShopping ? (
+                                  <CheckCircle2 className="w-4 h-4 text-primary" />
+                                ) : (
+                                  <Plus className="w-3.5 h-3.5 text-text-muted group-hover:text-primary opacity-0 group-hover:opacity-100 transition-all" />
+                                )}
                               </button>
                             );
                           })}
@@ -973,15 +1236,33 @@ export default function NutritionModule({ user }: { user: User }) {
                 </div>
              </div>
 
-             {/* Shopping List */}
-             <div className="lg:col-span-2 bg-surface p-8 rounded-[40px] border border-border shadow-sm flex flex-col h-[600px]">
-                <div className="flex justify-between items-center mb-8">
-                  <div>
+             {/* Lista de Compras (Post-its) - Derecha */}
+             <div 
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleDropShopping}
+              className="lg:col-span-2 bg-surface p-8 rounded-[40px] border border-border shadow-sm flex flex-col h-[700px]"
+             >
+                <div className="flex justify-between items-end mb-8">
+                  <div className="flex flex-col">
                     <h3 className="text-xl font-black text-text-main tracking-tight">Lista del Mercado</h3>
-                    <p className="text-xs font-bold text-text-muted uppercase tracking-widest">{shoppingList.length} productos en lista</p>
+                    <p className="text-xs font-bold text-text-muted uppercase tracking-widest">{shoppingList.length} productos en el carrito</p>
                   </div>
-                  <div className="flex gap-4">
-
+                  
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={generateWeeklyGroceries}
+                      disabled={isGeneratingMarket}
+                      className="px-6 py-3 bg-emerald-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all disabled:opacity-50 flex items-center gap-2 justify-center"
+                    >
+                      {isGeneratingMarket ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                      Sugerencia Semanal IA
+                    </button>
+                    <button 
+                      onClick={clearBoughtItems}
+                      className="px-6 py-3 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-primary/20 hover:bg-primary-dark transition-all flex items-center gap-2 justify-center"
+                    >
+                      <ShoppingBag className="w-4 h-4" /> Finalizar Compra
+                    </button>
                   </div>
                 </div>
 
@@ -994,62 +1275,93 @@ export default function NutritionModule({ user }: { user: User }) {
                         acc[groupKey].push(item);
                         return acc;
                       }, {} as Record<string, ShoppingItem[]>)
-                    ).map(([groupName, items], index) => {
-                      const postItColors = [
-                        "bg-[#fef3c7] border-[#fde68a] text-[#78350f]", // amber
-                        "bg-[#dcfce7] border-[#bbf7d0] text-[#14532d]", // green
-                        "bg-[#e0f2fe] border-[#bae6fd] text-[#0c4a6e]", // sky
-                        "bg-[#fce7f3] border-[#fbcfe8] text-[#831843]", // pink
-                        "bg-[#f3e8ff] border-[#e9d5ff] text-[#581c87]", // purple
-                      ];
-                      const colorClass = postItColors[index % postItColors.length];
-                      const rotations = ["rotate-1", "-rotate-1", "rotate-2", "-rotate-2", "rotate-0"];
-                      const rotation = rotations[index % rotations.length];
+                    ).length > 0 ? (
+                      Object.entries(
+                        shoppingList.reduce((acc, item) => {
+                          const groupKey = item.dishName || 'Básicos';
+                          if (!acc[groupKey]) acc[groupKey] = [];
+                          acc[groupKey].push(item);
+                          return acc;
+                        }, {} as Record<string, ShoppingItem[]>)
+                      ).map(([groupName, items], index) => {
+                        const postItColors = [
+                          "bg-[#fef3c7] border-[#fde68a] text-[#78350f]", // amber
+                          "bg-[#dcfce7] border-[#bbf7d0] text-[#14532d]", // green
+                          "bg-[#e0f2fe] border-[#bae6fd] text-[#0c4a6e]", // sky
+                          "bg-[#fce7f3] border-[#fbcfe8] text-[#831843]", // pink
+                          "bg-[#f3e8ff] border-[#e9d5ff] text-[#581c87]", // purple
+                        ];
+                        const colorClass = postItColors[index % postItColors.length];
+                        const rotations = ["rotate-1", "-rotate-1", "rotate-2", "-rotate-2", "rotate-0"];
+                        const rotation = rotations[index % rotations.length];
 
-                      return (
-                        <div key={groupName} className={cn("inline-block w-full mb-6 p-5 rounded-br-2xl shadow-[2px_4px_10px_rgba(0,0,0,0.1)] transition-transform hover:scale-[1.02] border-t border-l", colorClass, rotation)}>
-                          <div className="flex justify-between items-center border-b border-black/10 pb-3 mb-3 px-1">
-                            <div className="flex items-center gap-2">
-                              <h4 className="text-xs font-black uppercase tracking-widest">{groupName}</h4>
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            {items.map(item => (
-                              <div 
-                                key={item.id} 
-                                onClick={() => toggleBought(item.id, item.bought)}
-                                className={cn(
-                                  "flex items-center justify-between p-2 rounded transition-all cursor-pointer",
-                                  item.bought ? "opacity-60" : "hover:bg-black/5"
-                                )}
-                              >
-                                 <div className="flex items-center gap-3">
-                                    <div className={cn("w-5 h-5 flex-shrink-0 rounded border border-black/20 flex items-center justify-center transition-all bg-white/60 shadow-inner", item.bought && "bg-current border-current text-white")}>
-                                      {item.bought && <CheckCircle2 className="w-3.5 h-3.5" />}
-                                    </div>
-                                    <div className="flex flex-col">
-                                      <span className={cn("text-sm font-bold leading-tight", item.bought && "line-through opacity-80")}>{item.name}</span>
-                                    </div>
-                                 </div>
-                                 <button 
-                                  onClick={(e) => { e.stopPropagation(); deleteItem('shoppingList', item.id); }}
-                                  className="p-1.5 opacity-40 hover:opacity-100 hover:text-red-600 transition-colors"
-                                 >
-                                   <Trash2 className="w-4 h-4" />
-                                 </button>
+                        return (
+                          <motion.div 
+                            key={groupName} 
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className={cn("inline-block w-full mb-6 p-6 rounded-br-3xl shadow-[2px_10px_20px_rgba(0,0,0,0.06)] border-t border-l transition-all hover:translate-y-[-2px] hover:shadow-[2px_15px_30px_rgba(0,0,0,0.1)]", colorClass, rotation)}
+                          >
+                            <div className="flex justify-between items-center border-b border-black/10 pb-3 mb-4">
+                              <h4 className="text-xs font-black uppercase tracking-[0.1em]">{groupName}</h4>
+                              <div className="flex gap-1">
+                                <button 
+                                  onClick={() => moveGroupToFridge(groupName, items)}
+                                  className="p-2 bg-white/40 rounded-xl hover:bg-white hover:text-primary transition-all shadow-sm"
+                                  title="Mover todo al refrigerador"
+                                >
+                                  <Package className="w-4 h-4" />
+                                </button>
+                                <button 
+                                  onClick={() => deleteGroupFromShoppingList(groupName)}
+                                  className="p-2 bg-white/40 rounded-xl hover:bg-white hover:text-rose-600 transition-all shadow-sm"
+                                  title="Eliminar grupo completo"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
                               </div>
-                            ))}
-                          </div>
-                        </div>
-                      )
-                    })}
+                            </div>
+                            <div className="space-y-1.5">
+                              {items.map(item => (
+                                <div 
+                                  key={item.id} 
+                                  onClick={() => toggleBought(item.id, item.bought)}
+                                  className={cn(
+                                    "flex items-center justify-between p-2.5 rounded-xl transition-all cursor-pointer group/item",
+                                    item.bought ? "bg-black/5 opacity-60" : "hover:bg-black/5"
+                                  )}
+                                >
+                                   <div className="flex items-center gap-3">
+                                      <div className={cn(
+                                        "w-5 h-5 flex-shrink-0 rounded-lg border border-black/20 flex items-center justify-center transition-all bg-white/60", 
+                                        item.bought && "bg-current border-current text-white"
+                                      )}>
+                                        {item.bought && <CheckCircle2 className="w-4 h-4" />}
+                                      </div>
+                                      <span className={cn("text-sm font-bold leading-tight", item.bought && "line-through opacity-80")}>
+                                        {item.name}
+                                      </span>
+                                   </div>
+                                   <button 
+                                    onClick={(e) => { e.stopPropagation(); deleteItem('shoppingList', item.id); }}
+                                    className="p-1.5 opacity-0 group-hover/item:opacity-40 hover:opacity-100 hover:text-red-600 transition-all"
+                                   >
+                                     <Trash2 className="w-4 h-4" />
+                                   </button>
+                                </div>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )
+                      })
+                    ) : (
+                      <div className="h-[400px] flex flex-col items-center justify-center opacity-30 text-center col-span-full">
+                        <ShoppingBag className="w-20 h-20 mb-4 stroke-[1.5px]" />
+                        <h4 className="text-sm font-black uppercase tracking-widest mb-1">Lista vacía</h4>
+                        <p className="text-xs font-bold max-w-[200px]">Selecciona alimentos del catálogo para planificar tu compra.</p>
+                      </div>
+                    )}
                   </div>
-                  {shoppingList.length === 0 && (
-                    <div className="h-full flex flex-col items-center justify-center opacity-20 py-20">
-                      <ListChecks className="w-16 h-16 mb-4" />
-                      <p className="text-xs font-black uppercase tracking-widest">Lista vacía</p>
-                    </div>
-                  )}
                 </div>
              </div>
           </motion.div>
@@ -1136,11 +1448,7 @@ export default function NutritionModule({ user }: { user: User }) {
                           setIsSaving(true);
                           await deleteDoc(doc(db, 'users', user.uid, 'nutritionalDishes', dish.id));
                           setDishes(prev => prev.filter(d => d.id !== dish.id));
-                          if (window.confirm("¡Platillo preparado con éxito! ¿Deseas preparar otro platillo?")) {
-                            setActiveTab('refrigerador');
-                          } else {
-                            setActiveTab('platillos');
-                          }
+                          setActiveTab('refrigerador');
                         } catch (e) {
                           handleFirestoreError(e, OperationType.DELETE, `users/${user.uid}/nutritionalDishes/${dish.id}`);
                         } finally {
@@ -1241,20 +1549,18 @@ export default function NutritionModule({ user }: { user: User }) {
                               </button>
                               <button 
                                 onClick={async () => {
-                                  if (window.confirm(`¿Cancelar preparación y vaciar "${dishName}" del refrigerador?`)) {
-                                    setIsSaving(true);
-                                    try {
-                                      const batch = writeBatch(db);
-                                      items.forEach(i => {
-                                        batch.delete(doc(db, 'users', user.uid, 'fridge', i.id));
-                                      });
-                                      await batch.commit();
-                                      setFridge(prev => prev.filter(f => !items.find(i => i.id === f.id)));
-                                    } catch (e) {
-                                      handleFirestoreError(e, OperationType.DELETE, `users/${user.uid}/fridge/clearGroup`);
-                                    } finally {
-                                      setIsSaving(false);
-                                    }
+                                  setIsSaving(true);
+                                  try {
+                                    const batch = writeBatch(db);
+                                    items.forEach(i => {
+                                      batch.delete(doc(db, 'users', user.uid, 'fridge', i.id));
+                                    });
+                                    await batch.commit();
+                                    setFridge(prev => prev.filter(f => !items.find(i => i.id === f.id)));
+                                  } catch (e) {
+                                    handleFirestoreError(e, OperationType.DELETE, `users/${user.uid}/fridge/clearGroup`);
+                                  } finally {
+                                    setIsSaving(false);
                                   }
                                 }}
                                 className="p-2 text-text-muted hover:text-rose-500 transition-colors"
@@ -1485,67 +1791,84 @@ export default function NutritionModule({ user }: { user: User }) {
              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                <div className="lg:col-span-1 bg-surface p-6 rounded-3xl border border-border shadow-sm space-y-6 self-start">
                  <div className="flex items-center gap-3"><Plus className="w-5 h-5 text-primary" /><h3 className="text-lg font-black text-text-main tracking-tight">Crear Platillo</h3></div>
-                 <form onSubmit={handleAddDish} className="space-y-4">
-                    <input type="text" placeholder="Nombre del platillo" value={dishForm.name} onChange={e => setDishForm({...dishForm, name: e.target.value})} className="w-full px-5 py-4 bg-background border border-border rounded-xl text-sm font-bold" />
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest pl-1">Ingredientes</label>
-                      <div className="max-h-40 overflow-y-auto space-y-1 p-2 bg-background border border-border rounded-xl">
-                         {foods.filter(f => f.status !== 'prohibido').map(f => (
-                           <label key={f.id} className="flex items-center gap-3 p-2 hover:bg-surface rounded-lg cursor-pointer transition-colors">
-                             <input type="checkbox" checked={dishForm.ingredients.some(i => i.name === f.name)} onChange={e => {
-                               const ingredients = e.target.checked ? [...dishForm.ingredients, {name: f.name, quantity: ''}] : dishForm.ingredients.filter(i => i.name !== f.name);
-                               setDishForm({...dishForm, ingredients});
-                             }} className="w-4 h-4 rounded border-border text-primary focus:ring-primary" />
-                             <span className="text-xs font-medium text-text-main">{f.name}</span>
-                           </label>
-                         ))}
-                      </div>
-                    </div>
-                    <textarea placeholder="Instrucciones de preparación (opcional)" value={dishForm.instructions} onChange={e => setDishForm({...dishForm, instructions: e.target.value})} className="w-full px-5 py-4 bg-background border border-border rounded-xl text-sm font-medium h-24 resize-none" />
-                    <button type="submit" disabled={!dishForm.name || dishForm.ingredients.length === 0} className="w-full py-4 bg-primary text-white rounded-xl font-bold text-xs uppercase tracking-widest">Guardar Platillo</button>
-                 </form>
+                 
+                 <div className="space-y-4">
+                   <h4 className="text-[10px] font-black text-text-muted uppercase tracking-widest pl-1">¿Para qué momento?</h4>
+                   <div className="grid grid-cols-2 gap-2">
+                     {[
+                       { id: 'desayuno', label: 'Desayuno', icon: '🍳' },
+                       { id: 'colación matutina', label: 'Col. Matutina', icon: '🍎' },
+                       { id: 'comida', label: 'Comida', icon: '🍱' },
+                       { id: 'colación vespertina', label: 'Col. Vespertina', icon: '🥜' },
+                       { id: 'cena', label: 'Cena', icon: '🥣' }
+                     ].map(meal => (
+                       <button
+                         key={meal.id}
+                         type="button"
+                         onClick={() => setSelectedMealType(meal.id)}
+                         className={cn(
+                           "flex items-center gap-2 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-tighter transition-all border",
+                           selectedMealType === meal.id 
+                             ? "bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-100" 
+                             : "bg-background text-indigo-600 border-indigo-100 hover:border-indigo-300"
+                         )}
+                       >
+                         <span>{meal.icon}</span>
+                         <span className="truncate">{meal.label}</span>
+                       </button>
+                     ))}
+                   </div>
+                 </div>
 
-                 <div className="pt-6 border-t border-border space-y-4">
-                    <div className="flex flex-col gap-3">
-                       <h4 className="text-xs font-black text-text-main uppercase tracking-widest flex items-center gap-2">
-                          <Brain className="w-4 h-4 text-indigo-500" />
-                          Sugerencias IA por Momento
-                       </h4>
-                       <div className="grid grid-cols-2 gap-2">
-                          {[
-                            { id: 'desayuno', label: 'Desayuno', icon: '🍳' },
-                            { id: 'colación matutina', label: 'Col. Matutina', icon: '🍎' },
-                            { id: 'comida', label: 'Comida', icon: '🍱' },
-                            { id: 'colación vespertina', label: 'Col. Vespertina', icon: '🥜' },
-                            { id: 'cena', label: 'Cena', icon: '🥣' }
-                          ].map(meal => (
-                            <button
-                              key={meal.id}
-                              type="button"
-                              onClick={() => setSelectedMealType(meal.id)}
-                              className={cn(
-                                "flex items-center gap-2 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-tighter transition-all border",
-                                selectedMealType === meal.id 
-                                  ? "bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-100" 
-                                  : "bg-background text-indigo-600 border-indigo-100 hover:border-indigo-300"
-                              )}
-                            >
-                              <span>{meal.icon}</span>
-                              <span className="truncate">{meal.label}</span>
-                            </button>
-                          ))}
-                       </div>
-                       <button 
+                 <div className="space-y-4 pt-4 border-t border-border">
+                    <h4 className="text-[10px] font-black text-emerald-600 uppercase tracking-widest pl-1 flex items-center gap-2">
+                       <Sparkles className="w-3 h-3" />
+                       Asistente IA
+                    </h4>
+                    <div className="grid grid-cols-1 gap-3">
+                      <button 
+                        type="button"
+                        onClick={generateDishFromFridgeIngredients} 
+                        disabled={isGenerating || fridge.length === 0}
+                        className="w-full py-4 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-30 flex items-center justify-center gap-2"
+                      >
+                        {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                        Generar con refri ({selectedMealType})
+                      </button>
+                      <button 
                         type="button"
                         onClick={handleGenerateSuggestions} 
                         disabled={isGenerating || foods.filter(f => f.status === 'permitido').length === 0}
-                        className="w-full mt-2 py-3 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl transition-all disabled:opacity-30 flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest border border-indigo-100"
-                       >
-                         {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                         {isGenerating ? 'Generando...' : `Sugerir ${selectedMealType}`}
-                       </button>
+                        className="w-full py-3 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl transition-all disabled:opacity-30 flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest border border-indigo-100"
+                      >
+                        {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
+                        Sugerencia Abierta ({selectedMealType})
+                      </button>
                     </div>
-                    <p className="text-[10px] text-text-muted font-medium leading-tight">Genera platillos basados en tus alimentos permitidos y plan de porciones para el momento del día seleccionado.</p>
+                    <p className="text-[10px] text-text-muted font-medium leading-tight px-1">Genera platillos combinando tus alimentos con el refri o el mercado según el momento seleccionado y tus porciones ideales.</p>
+                 </div>
+
+                 <div className="pt-6 border-t border-border space-y-4">
+                    <h4 className="text-[10px] font-black text-text-muted uppercase tracking-widest pl-1">Creación Manual</h4>
+                    <form onSubmit={handleAddDish} className="space-y-4">
+                       <input type="text" placeholder="Nombre del platillo" value={dishForm.name} onChange={e => setDishForm({...dishForm, name: e.target.value})} className="w-full px-5 py-4 bg-background border border-border rounded-xl text-sm font-bold" />
+                       <div className="space-y-2">
+                         <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest pl-1">Ingredientes</label>
+                         <div className="max-h-40 overflow-y-auto space-y-1 p-2 bg-background border border-border rounded-xl">
+                            {foods.filter(f => f.status !== 'prohibido').map(f => (
+                              <label key={f.id} className="flex items-center gap-3 p-2 hover:bg-surface rounded-lg cursor-pointer transition-colors">
+                                <input type="checkbox" checked={dishForm.ingredients.some(i => i.name === f.name)} onChange={e => {
+                                  const ingredients = e.target.checked ? [...dishForm.ingredients, {name: f.name, quantity: ''}] : dishForm.ingredients.filter(i => i.name !== f.name);
+                                  setDishForm({...dishForm, ingredients});
+                                }} className="w-4 h-4 rounded border-border text-primary focus:ring-primary" />
+                                <span className="text-xs font-medium text-text-main">{f.name}</span>
+                              </label>
+                            ))}
+                         </div>
+                       </div>
+                       <textarea placeholder="Instrucciones de preparación (opcional)" value={dishForm.instructions} onChange={e => setDishForm({...dishForm, instructions: e.target.value})} className="w-full px-5 py-4 bg-background border border-border rounded-xl text-sm font-medium h-24 resize-none" />
+                       <button type="submit" disabled={!dishForm.name || dishForm.ingredients.length === 0} className="w-full py-4 bg-primary text-white rounded-xl font-bold text-xs uppercase tracking-widest">Guardar Platillo</button>
+                    </form>
                  </div>
                </div>
                <div className="lg:col-span-2 space-y-8">
@@ -1577,11 +1900,12 @@ export default function NutritionModule({ user }: { user: User }) {
                                {s.ingredients.length > 4 && <span className="text-[9px] font-bold text-indigo-400">+{s.ingredients.length - 4} más</span>}
                             </div>
                             <button 
-                              onClick={() => handleSaveSuggestedDish(s)}
+                              onClick={() => handleSaveSuggestedDish(s, s.isFromFridge)}
                               disabled={isSaving}
-                              className="w-full py-2 bg-indigo-600 text-white rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
+                              className={`w-full py-2 ${s.isFromFridge ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-indigo-600 hover:bg-indigo-700'} text-white rounded-xl font-bold text-[10px] uppercase tracking-widest transition-all flex items-center justify-center gap-2`}
                             >
-                              {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} Añadir a Mis Platillos
+                              {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : (s.isFromFridge ? <Utensils className="w-3 h-3" /> : <Plus className="w-3 h-3" />)}
+                              {s.isFromFridge ? 'Enviar a Cocina' : 'Añadir a Mis Platillos'}
                             </button>
                           </motion.div>
                         ))}
