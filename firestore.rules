@@ -171,9 +171,26 @@ service cloud.firestore {
         allow list, get: if isOwner(userId);
         allow create, update: if isOwner(userId)
           && isValidId(planId)
-          && request.resource.data.userId == request.auth.uid
-          && request.resource.data.generalIndications is string;
+          && request.resource.data.userId == request.auth.uid;
         allow delete: if isOwner(userId);
+      }
+
+      // Shopping List subcollection
+      match /shoppingList/{itemId} {
+        allow list, get: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(itemId)
+          && request.resource.data.foodId is string
+          && request.resource.data.name is string;
+        allow update: if isOwner(userId)
+          && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['bought']));
+        allow delete: if isOwner(userId);
+      }
+
+      // Fridge subcollection
+      match /fridge/{itemId} {
+        allow list, get: if isOwner(userId);
+        allow create, update, delete: if isOwner(userId) && isValidId(itemId);
       }
 
       // Executive Analysis subcollection [AI]

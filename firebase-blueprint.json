@@ -190,9 +190,60 @@
         "userId": { "type": "string" },
         "generalIndications": { "type": "string" },
         "forbiddenGeneral": { "type": "array", "items": { "type": "string" } },
+        "portions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "group": { "type": "string" },
+              "total": { "type": "number" },
+              "desayuno": { "type": "number" },
+              "colacion1": { "type": "number" },
+              "comida": { "type": "number" },
+              "colacion2": { "type": "number" },
+              "cena": { "type": "number" }
+            }
+          }
+        },
+        "glucoseGoals": {
+          "type": "object",
+          "properties": {
+            "fasting": { "type": "string" },
+            "postMeal": { "type": "string" }
+          }
+        },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "generalIndications"]
+    },
+    "ShoppingItem": {
+      "title": "Shopping List Item",
+      "description": "An item to buy for the market/grocery list.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "foodId": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "status": { "type": "string", "enum": ["permitido", "moderado", "prohibido"] },
+        "bought": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "foodId", "bought"]
+    },
+    "FridgeItem": {
+      "title": "Refrigerator Item",
+      "description": "An item currently available in the user's kitchen/fridge.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "foodId": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "quantity": { "type": "string" },
+        "addedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "foodId"]
     },
     "ExecutiveAnalysis": {
       "title": "Executive Analysis [AI]",
@@ -253,6 +304,14 @@
     "/users/{userId}/nutritionalPlans/{planId}": {
       "schema": "NutritionalPlan",
       "description": "Strategic nutrition guidelines for the user."
+    },
+    "/users/{userId}/shoppingList/{itemId}": {
+      "schema": "ShoppingItem",
+      "description": "Grocery/market list for the user."
+    },
+    "/users/{userId}/fridge/{itemId}": {
+      "schema": "FridgeItem",
+      "description": "Inventory of food items currently in the user's refrigerator/pantry."
     },
     "/users/{userId}/executiveAnalyses/{analysisId}": {
       "schema": "ExecutiveAnalysis",

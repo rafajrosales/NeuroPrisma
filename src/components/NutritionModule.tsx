@@ -1,22 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { User } from 'firebase/auth';
-import { Utensils, Droplets, Plus, Trash2, Calendar, Scale, Ruler, Sparkles, Loader2, Brain, ChevronRight, Search, Filter, Ban, CheckCircle2, AlertCircle, ListChecks, BookOpen, ClipboardList, Info } from 'lucide-react';
+import { 
+  Utensils, Droplets, Plus, Trash2, Calendar, Scale, Ruler, Sparkles, Loader2, Brain, 
+  ChevronRight, Search, Filter, Ban, CheckCircle2, AlertCircle, ListChecks, BookOpen, Clock,
+  ClipboardList, Info, Package, X, ShoppingBag 
+} from 'lucide-react';
 import { db, doc, getDoc, updateDoc, handleFirestoreError, OperationType } from '../lib/firebase';
-import { collection, query, addDoc, getDocs, orderBy, deleteDoc, serverTimestamp, Timestamp, where, setDoc } from 'firebase/firestore';
+import { collection, query, addDoc, getDocs, orderBy, deleteDoc, serverTimestamp, Timestamp, where, setDoc, writeBatch } from 'firebase/firestore';
 import { cn } from '../lib/utils';
+import { getNutritionalSuggestions } from '../services/aiService';
 import { format, startOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'motion/react';
-
-interface NutritionLog {
-  id: string;
-  userId: string;
-  mealType: 'desayuno' | 'almuerzo' | 'comida' | 'cena' | 'snack' | 'suplemento' | 'hidratacion';
-  description: string;
-  calories?: number;
-  waterAmount?: number;
-  timestamp: Date;
-}
+import { INITIAL_FOODS } from '../data/initialFoods';
 
 interface FoodItem {
   id: string;
@@ -24,6 +20,7 @@ interface FoodItem {
   name: string;
   category: string;
   status: 'permitido' | 'moderado' | 'prohibido';
+  unit?: string;
   notes?: string;
 }
 
@@ -31,8 +28,20 @@ interface NutritionalDish {
   id: string;
   userId: string;
   name: string;
-  ingredients: string[];
+  ingredients: { name: string; quantity: string }[];
   instructions?: string;
+  status?: 'template' | 'preparando';
+  createdAt?: any;
+}
+
+interface PortionPlan {
+  group: string;
+  total: number;
+  desayuno: number;
+  colacion1: number;
+  comida: number;
+  colacion2: number;
+  cena: number;
 }
 
 interface NutritionalPlan {
@@ -40,58 +49,196 @@ interface NutritionalPlan {
   userId: string;
   generalIndications: string;
   forbiddenGeneral: string[];
+  portions: PortionPlan[];
+  glucoseGoals?: {
+    fasting: string;
+    postMeal: string;
+  };
 }
 
-const MEAL_TYPES = [
-  { value: 'desayuno', label: 'Desayuno', icon: '🍳' },
-  { value: 'almuerzo', label: 'Almuerzo', icon: '🥪' },
-  { value: 'comida', label: 'Comida', icon: '🍱' },
-  { value: 'cena', label: 'Cena', icon: '🥗' },
-  { value: 'snack', label: 'Snack/Botana', icon: '🍎' },
-  { value: 'suplemento', label: 'Suplemento', icon: '💊' },
-  { value: 'hidratacion', label: 'Hidratación', icon: '💧' },
-];
-
 const FOOD_CATEGORIES = [
-  "Proteínas", "Carbohidratos", "Grasas Saludables", "Vegetales", "Frutas", "Lácteos", "Bebidas", "Complementos"
+  "Frutas", "Cereales", "Verduras", "Leguminosas", "Alimentos de origen animal", "Grasas", "Lácteos/bebida vegetal", "Semillas", "Otros"
 ];
 
-type Tab = 'diario' | 'alimentos' | 'platillos' | 'plan';
+type Tab = 'mercado' | 'cocina' | 'refrigerador' | 'alimentos' | 'platillos' | 'plan';
+
+interface ShoppingItem {
+  id: string;
+  foodId: string;
+  name: string;
+  category: string;
+  status: 'permitido' | 'moderado' | 'prohibido' | 'libre';
+  dishName?: string;
+  bought: boolean;
+}
+
+interface FridgeItem {
+  id: string;
+  foodId: string;
+  name: string;
+  category: string;
+  dishName?: string;
+  confirmed?: boolean;
+}
 
 export default function NutritionModule({ user }: { user: User }) {
-  const [activeTab, setActiveTab] = useState<Tab>('diario');
-  const [logs, setLogs] = useState<NutritionLog[]>([]);
+  const [activeTab, setActiveTab] = useState<Tab>('mercado');
   const [foods, setFoods] = useState<FoodItem[]>([]);
   const [dishes, setDishes] = useState<NutritionalDish[]>([]);
+  const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
+  const [fridge, setFridge] = useState<FridgeItem[]>([]);
+  const [suggestedDishes, setSuggestedDishes] = useState<any[]>([]);
   const [plan, setPlan] = useState<NutritionalPlan | null>(null);
+  const [selectedMealType, setSelectedMealType] = useState<string>('comida');
+  
+  const [marketSearch, setMarketSearch] = useState('');
   
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [profile, setProfile] = useState<any>(null);
   
+  const INITIAL_PORTIONS: PortionPlan[] = [
+    { group: 'Verduras', total: 5, desayuno: 2, colacion1: 0, comida: 2, colacion2: 0, cena: 1 },
+    { group: 'Frutas', total: 2, desayuno: 0, colacion1: 1, comida: 0, colacion2: 1, cena: 0 },
+    { group: 'Cereales', total: 6, desayuno: 2, colacion1: 0, comida: 2, colacion2: 0, cena: 2 },
+    { group: 'A. Origen Animal', total: 9, desayuno: 3, colacion1: 0, comida: 3, colacion2: 0, cena: 3 },
+    { group: 'Aceites', total: 3, desayuno: 1, colacion1: 0, comida: 1, colacion2: 0, cena: 1 },
+    { group: 'Semillas', total: 1, desayuno: 0, colacion1: 0.5, comida: 0, colacion2: 0.5, cena: 0 },
+  ];
+
   // States for forms
-  const [mealForm, setMealForm] = useState({ type: 'comida' as any, description: '', amount: '' });
-  const [foodForm, setFoodForm] = useState({ name: '', category: FOOD_CATEGORIES[0], status: 'permitido' as any, notes: '' });
-  const [dishForm, setDishForm] = useState({ name: '', ingredients: [] as string[], instructions: '' });
+  const [foodForm, setFoodForm] = useState({ name: '', category: FOOD_CATEGORIES[0], status: 'permitido' as any, notes: '', unit: '' });
+  const [dishForm, setDishForm] = useState({ name: '', ingredients: [] as { name: string; quantity: string }[], instructions: '' });
   const [planForm, setPlanForm] = useState({ indications: '', forbidden: '' });
+  const [selectedCategory, setSelectedCategory] = useState(FOOD_CATEGORIES[0]);
+  const [selectedStatus, setSelectedStatus] = useState<string | 'all'>('all');
 
   useEffect(() => {
     fetchData();
     fetchProfile();
   }, [user.uid]);
 
+  const sendDishToKitchen = async (dishName: string, items: FridgeItem[]) => {
+    setIsSaving(true);
+    try {
+      const template = dishes.find(d => d.name === dishName && d.status === 'template');
+      const instructions = template?.instructions || "";
+
+      const batch = writeBatch(db);
+      const dishRef = doc(collection(db, 'users', user.uid, 'nutritionalDishes'));
+      
+      const dishData = {
+        name: dishName,
+        ingredients: items.map(i => ({ name: i.name, quantity: '1 u.' })),
+        instructions: instructions,
+        status: 'preparando',
+        createdAt: serverTimestamp(),
+        userId: user.uid
+      };
+
+      batch.set(dishRef, dishData);
+
+      const movedIds = new Set(items.map(i => i.id));
+      items.forEach(i => {
+        batch.delete(doc(db, 'users', user.uid, 'fridge', i.id));
+      });
+
+      await batch.commit();
+      
+      setDishes(prev => [...prev, { id: dishRef.id, ...dishData, ingredients: items.map(i => ({ name: i.name, quantity: '' })) } as NutritionalDish]);
+      setFridge(prev => prev.filter(f => !movedIds.has(f.id)));
+      
+      alert(`👨‍🍳 ¡Ingredientes listos! "${dishName}" se ha movido automáticamente a La Cocina.`);
+      setActiveTab('cocina');
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}/fridge/autoSendToKitchen`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const toggleFridgeCheck = async (item: FridgeItem) => {
+    try {
+      const newStatus = !item.confirmed;
+      await updateDoc(doc(db, 'users', user.uid, 'fridge', item.id), { confirmed: newStatus });
+      
+      const updatedFridge = fridge.map(f => f.id === item.id ? { ...f, confirmed: newStatus } : f);
+      setFridge(updatedFridge);
+
+      // Si es un platillo y se acaba de confirmar el ultimo ingrediente
+      if (item.dishName && item.dishName !== 'Básicos' && newStatus) {
+        const dishItems = updatedFridge.filter(f => f.dishName === item.dishName);
+        if (dishItems.every(i => i.confirmed)) {
+          await sendDishToKitchen(item.dishName, dishItems);
+        }
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}/fridge/${item.id}`);
+    }
+  };
+
   const fetchData = async () => {
     setLoading(true);
     try {
-      const logsSnap = await getDocs(query(collection(db, 'users', user.uid, 'nutritionLogs'), orderBy('timestamp', 'desc')));
       const foodsSnap = await getDocs(query(collection(db, 'users', user.uid, 'foodItems'), orderBy('category', 'asc')));
       const dishesSnap = await getDocs(query(collection(db, 'users', user.uid, 'nutritionalDishes')));
+      const shoppingSnap = await getDocs(query(collection(db, 'users', user.uid, 'shoppingList')));
+      const fridgeSnap = await getDocs(query(collection(db, 'users', user.uid, 'fridge')));
       const planSnap = await getDocs(collection(db, 'users', user.uid, 'nutritionalPlans'));
 
-      setLogs(logsSnap.docs.map(d => ({ id: d.id, ...d.data(), timestamp: d.data().timestamp?.toDate() || new Date() } as NutritionLog)));
-      setFoods(foodsSnap.docs.map(d => ({ id: d.id, ...d.data() } as FoodItem)));
-      setDishes(dishesSnap.docs.map(d => ({ id: d.id, ...d.data() } as NutritionalDish)));
+      const dbFoods = foodsSnap.docs.map(d => ({ id: d.id, ...d.data() } as FoodItem));
       
+      // -- LIMPIEZA DE DUPLICADOS --
+      const seen = new Map<string, FoodItem>();
+      const duplicatesToRemove: string[] = [];
+      const cleanDbFoods: FoodItem[] = [];
+
+      dbFoods.forEach(food => {
+        const normalizedName = food.name.trim().toLowerCase();
+        if (seen.has(normalizedName)) {
+          duplicatesToRemove.push(food.id);
+        } else {
+          seen.set(normalizedName, food);
+          cleanDbFoods.push(food);
+        }
+      });
+
+      const batchUpdate = writeBatch(db);
+      let needsUpdate = false;
+
+      // Borrar duplicados si existen
+      if (duplicatesToRemove.length > 0) {
+        needsUpdate = true;
+        duplicatesToRemove.forEach(id => {
+          batchUpdate.delete(doc(db, 'users', user.uid, 'foodItems', id));
+        });
+      }
+
+      const updatedFoods = cleanDbFoods.map(dbFood => {
+        const initFood = INITIAL_FOODS.find(i => i.name === dbFood.name);
+        if (initFood && (dbFood.notes !== initFood.notes || dbFood.unit !== initFood.unit)) {
+          needsUpdate = true;
+          batchUpdate.update(doc(db, 'users', user.uid, 'foodItems', dbFood.id), { 
+            notes: initFood.notes || '', 
+            unit: initFood.unit || '' 
+          });
+          return { ...dbFood, notes: initFood.notes, unit: initFood.unit };
+        }
+        return dbFood;
+      });
+
+      if (needsUpdate) {
+         try {
+           await batchUpdate.commit();
+         } catch(e) { }
+      }
+
+      setFoods(updatedFoods);
+      setDishes(dishesSnap.docs.map(d => ({ id: d.id, ...d.data() } as NutritionalDish)));
+      setShoppingList(shoppingSnap.docs.map(d => ({ id: d.id, ...d.data() } as ShoppingItem)));
+      setFridge(fridgeSnap.docs.map(d => ({ id: d.id, ...d.data() } as FridgeItem)));
+
       if (!planSnap.empty) {
         const pData = planSnap.docs[0].data() as NutritionalPlan;
         setPlan({ id: planSnap.docs[0].id, ...pData });
@@ -108,25 +255,453 @@ export default function NutritionModule({ user }: { user: User }) {
     if (snap.exists()) setProfile(snap.data());
   };
 
-  // Actions
-  const handleAddLog = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Fridge Actions
+  const addToFridge = async (food: FoodItem) => {
+    if (fridge.some(item => item.foodId === food.id && (item as any).dishName === 'Básicos')) return;
+    try {
+      const newItem = {
+        foodId: food.id,
+        name: food.name,
+        category: food.category,
+        dishName: 'Básicos',
+        addedAt: serverTimestamp()
+      };
+      const docRef = await addDoc(collection(db, 'users', user.uid, 'fridge'), newItem);
+      setFridge([...fridge, { id: docRef.id, ...newItem } as FridgeItem]);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/fridge`);
+    }
+  };
+
+  const removeFromFridge = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'users', user.uid, 'fridge', id));
+      setFridge(fridge.filter(item => item.id !== id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `users/${user.uid}/fridge/${id}`);
+    }
+  };
+
+
+  const parseConversionInfo = (notes: string) => {
+    if (!notes) return null;
+    const match = notes.match(/(?:Porción:\s*)?([\d\s\/]+)(?:de\s+)?(taza|cucharada|cucharadita|pieza|lata)(?:s)?\s*(?:\(~([\d\.]+)(g|ml)[^\)]*\))?/i);
+    if (!match) return null;
+    
+    let qtyStr = match[1].trim();
+    let qty = 0;
+    if (qtyStr.includes(' ')) {
+        const [whole, frac] = qtyStr.split(' ');
+        const [n, d] = frac.split('/');
+        qty = parseInt(whole) + parseInt(n)/parseInt(d);
+    } else if (qtyStr.includes('/')) {
+        const [n, d] = qtyStr.split('/');
+        qty = parseInt(n)/parseInt(d);
+    } else {
+        qty = parseFloat(qtyStr);
+    }
+    
+    let unit = match[2].toLowerCase();
+    let g_ml = match[3] ? parseFloat(match[3]) : 0;
+    let g_ml_unit = match[4] || '';
+    return { qty, unit, g_ml, g_ml_unit };
+  };
+
+  const getShoppingFinalName = (food: FoodItem, quantityInput: string | null): string => {
+    if (!quantityInput || !quantityInput.trim()) return food.name;
+    const input = quantityInput.trim();
+    const baseName = food.name.trim();
+    
+    const conv = parseConversionInfo(food.notes || '');
+    if (!conv) {
+      return `${input} de ${baseName}`;
+    }
+
+    // Try to parse the number they inputted
+    const numMatch = input.match(/^([\d\.\s\/]+)/);
+    let userQty = 0;
+    if (numMatch) {
+        let qStr = numMatch[1].trim();
+        if (qStr.includes(' ')) {
+            const [whole, frac] = qStr.split(' ');
+            if (frac.includes('/')) {
+              const [n, d] = frac.split('/');
+              userQty = parseInt(whole) + parseInt(n)/parseInt(d);
+            } else {
+              userQty = parseFloat(whole); // Fallback
+            }
+        } else if (qStr.includes('/')) {
+            const [n, d] = qStr.split('/');
+            userQty = parseInt(n)/parseInt(d);
+        } else {
+            userQty = parseFloat(qStr);
+        }
+    }
+
+    // Check if the user mentioned a unit
+    let userUnit = '';
+    const lowerInput = input.toLowerCase();
+    if (lowerInput.includes('taza')) userUnit = 'taza';
+    else if (lowerInput.includes('cucharada')) userUnit = 'cucharada';
+    else if (lowerInput.includes('cucharadita')) userUnit = 'cucharadita';
+    else if (lowerInput.includes('pieza')) userUnit = 'pieza';
+    else if (lowerInput.includes('lata')) userUnit = 'lata';
+
+    // If they just typed numbers, assume they meant portions based on their food unit
+    if (userQty > 0) {
+      // If user typed '2 tazas' and the food uses 'taza', we convert!
+      if (userUnit && userUnit === conv.unit && conv.g_ml > 0) {
+         let totalGml = (userQty / conv.qty) * conv.g_ml;
+         return `${input} (~${Math.round(totalGml)}${conv.g_ml_unit}) de ${baseName}`;
+      }
+      
+      // If no unit typed but we can infer they meant the recipe unit
+      if (!userUnit && conv.unit) {
+         let unitStr = userQty === 1 ? conv.unit : conv.unit + 's';
+         if (conv.g_ml > 0) {
+            let totalGml = (userQty / conv.qty) * conv.g_ml;
+            return `${userQty} ${unitStr} (~${Math.round(totalGml)}${conv.g_ml_unit}) de ${baseName}`;
+         }
+         return `${userQty} ${unitStr} de ${baseName}`;
+      }
+    }
+
+    return `${input} de ${baseName}`;
+  };
+
+  // Shopping List Actions
+  const addToShoppingList = async (food: FoodItem) => {
+    if (shoppingList.some(item => item.foodId === food.id)) return;
+    
+    let portionInfo = food.notes ? `\nValor de 1 porción: ${food.notes}` : '';
+    let quantity = window.prompt(`¿Qué cantidad en TAZAS, PIEZAS o CUCHARADAS de "${food.name}" necesitas comprar?\n(Escribe la cantidad, ej. "2 tazas", "3 piezas", "0.5 tazas")${portionInfo}\n\nCalcularemos automáticamente los gramos o mililitros.`);
+    if (quantity === null) return; // User cancelled
+    
+    let finalName = getShoppingFinalName(food, quantity);
+
+    try {
+      const newItem = {
+        foodId: food.id,
+        name: finalName,
+        category: food.category,
+        dishName: 'Básicos',
+        status: food.status,
+        bought: false,
+        createdAt: serverTimestamp()
+      };
+      const docRef = await addDoc(collection(db, 'users', user.uid, 'shoppingList'), newItem);
+      setShoppingList([...shoppingList, { id: docRef.id, ...newItem } as ShoppingItem]);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/shoppingList`);
+    }
+  };
+
+  const handleManualAddToMarket = async (itemName: string) => {
+    const existingFood = foods.find(f => f.name.toLowerCase() === itemName.toLowerCase());
+    
+    if (existingFood) {
+      if (existingFood.status === 'prohibido') {
+        alert("⚠️ Este alimento está en tu lista como PROHIBIDO.");
+        return;
+      }
+      await addToShoppingList(existingFood);
+    } else {
+      const quantity = window.prompt(`¿Qué cantidad de "${itemName}" necesitas?\n(Ej. "1 kg", "2 packs", "500g")`);
+      if (quantity === null) return;
+
+      try {
+        const newItem = {
+          foodId: 'manual-' + Date.now(),
+          name: `${itemName} (${quantity})`,
+          category: 'Otros',
+          dishName: 'Básicos',
+          status: 'permitido',
+          bought: false,
+          createdAt: serverTimestamp()
+        };
+        const docRef = await addDoc(collection(db, 'users', user.uid, 'shoppingList'), newItem);
+        setShoppingList([...shoppingList, { id: docRef.id, ...newItem } as ShoppingItem]);
+        setMarketSearch('');
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/shoppingList`);
+      }
+    }
+  };
+
+  const toggleBought = async (itemId: string, currentStatus: boolean) => {
+    try {
+      const newStatus = !currentStatus;
+      await updateDoc(doc(db, 'users', user.uid, 'shoppingList', itemId), { bought: newStatus });
+      
+      const updatedList = shoppingList.map(item => item.id === itemId ? { ...item, bought: newStatus } : item);
+      setShoppingList(updatedList);
+
+      // Logica automatica: si todos los ingredientes de este grupo estan marcados, moverlos ya
+      const changedItem = updatedList.find(i => i.id === itemId);
+      if (changedItem && newStatus) {
+        const itemDish = changedItem.dishName || 'Básicos';
+        const groupItems = updatedList.filter(i => (i.dishName || 'Básicos') === itemDish);
+        const allBought = groupItems.every(i => i.bought);
+
+        if (allBought) {
+          setIsSaving(true);
+          try {
+            const batch = writeBatch(db);
+            const newFridgeItems: FridgeItem[] = [];
+            
+            for (const item of groupItems) {
+              const fridgeRef = doc(collection(db, 'users', user.uid, 'fridge'));
+              const fridgeData = {
+                foodId: item.foodId,
+                name: item.name,
+                category: item.category,
+                dishName: itemDish,
+                confirmed: false,
+                addedAt: serverTimestamp()
+              };
+              batch.set(fridgeRef, fridgeData);
+              batch.delete(doc(db, 'users', user.uid, 'shoppingList', item.id));
+              newFridgeItems.push({ id: fridgeRef.id, ...fridgeData } as FridgeItem);
+            }
+            
+            await batch.commit();
+            setFridge(prev => [...prev, ...newFridgeItems]);
+            setShoppingList(prev => prev.filter(i => !groupItems.some(gi => gi.id === i.id)));
+            
+            alert(`✅ Receta "${itemDish}" completada.\n\nSe ha movido al refrigerador para verificación final.`);
+            setActiveTab('refrigerador');
+          } catch (err) {
+            handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/shoppingList/autoMove`);
+          } finally {
+            setIsSaving(false);
+          }
+        }
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}/shoppingList/${itemId}`);
+    }
+  };
+
+  const clearBoughtItems = async () => {
+    if (shoppingList.length === 0) return;
+
+    const confirmMessage = shoppingList.some(i => !i.bought) 
+      ? `Tienes ${shoppingList.filter(i => !i.bought).length} artículos sin marcar como comprados. ¿Deseas mover TODA la lista (${shoppingList.length} artículos) al refrigerador y finalizar la compra?`
+      : `¿Deseas mover los ${shoppingList.length} artículos al refrigerador y finalizar la compra?`;
+
+    if (!window.confirm(confirmMessage)) return;
+
     setIsSaving(true);
     try {
-      const data: any = {
-        userId: user.uid,
-        mealType: mealForm.type,
-        description: mealForm.type === 'hidratacion' ? 'Agua' : mealForm.description,
-        timestamp: serverTimestamp(),
-      };
-      if (mealForm.type === 'hidratacion') data.waterAmount = Number(mealForm.amount);
-      else if (mealForm.amount) data.calories = Number(mealForm.amount);
+      const batch = writeBatch(db);
+      const newFridgeItems: FridgeItem[] = [];
 
-      await addDoc(collection(db, 'users', user.uid, 'nutritionLogs'), data);
-      setMealForm({ type: 'comida', description: '', amount: '' });
-      fetchData();
-    } catch (err) { 
-      handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/nutritionLogs`);
+      for (const item of shoppingList) {
+        // Only if not already in fridge (matching name AND dish to avoid incorrect skips)
+        const itemDish = item.dishName || 'Básicos';
+        const existsInFridge = fridge.some(f => {
+          if (f.foodId && item.foodId && f.foodId === item.foodId && (f as any).dishName === itemDish) return true;
+          const fName = f.name.toLowerCase().trim();
+          const iName = item.name.toLowerCase().trim();
+          return fName === iName && (f as any).dishName === itemDish;
+        });
+
+        if (!existsInFridge) {
+          const fridgeRef = doc(collection(db, 'users', user.uid, 'fridge'));
+          const fridgeData = {
+            foodId: item.foodId,
+            name: item.name,
+            category: item.category,
+            dishName: itemDish,
+            confirmed: false,
+            addedAt: serverTimestamp()
+          };
+          batch.set(fridgeRef, fridgeData);
+          newFridgeItems.push({ id: fridgeRef.id, ...fridgeData } as FridgeItem);
+        }
+        // Delete from market list
+        batch.delete(doc(db, 'users', user.uid, 'shoppingList', item.id));
+      }
+
+      await batch.commit();
+      setFridge(prev => [...prev, ...newFridgeItems]);
+      setShoppingList([]);
+      
+      alert("✅ ¡Compra finalizada!\n\nSe han movido los ingredientes a tu refrigerador. Por favor, confírmalos uno a uno para asegurar que tienes todo listo para cocinar.");
+      setActiveTab('refrigerador');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/fridge/clearAndMoveAll`);
+    }
+    setIsSaving(false);
+  };
+
+  const consumeDishIngredientsFromFridge = async (dish: NutritionalDish) => {
+    const toRemoveIndices: string[] = [];
+    const removedNames: string[] = [];
+
+    for (const ingredientObj of dish.ingredients) {
+       const ingredientName = typeof ingredientObj === "string" ? ingredientObj : ingredientObj.name;
+       const food = foods.find(f => f.name.toLowerCase() === ingredientName.toLowerCase());
+       
+       let fridgeItem = fridge.find(item => 
+         (item.dishName === dish.name || (item as any).dishName === dish.name) && 
+         (food ? item.foodId === food.id : item.name.toLowerCase() === ingredientName.toLowerCase())
+       );
+
+       // Fallback to Basics if not found in specific dish
+       if (!fridgeItem) {
+          fridgeItem = fridge.find(item => 
+            ((item.dishName || (item as any).dishName) === 'Básicos') && 
+            (food ? item.foodId === food.id : item.name.toLowerCase() === ingredientName.toLowerCase())
+          );
+       }
+
+       if (fridgeItem && !toRemoveIndices.includes(fridgeItem.id)) {
+          toRemoveIndices.push(fridgeItem.id);
+          removedNames.push(fridgeItem.name);
+       }
+    }
+
+    if (toRemoveIndices.length === 0) {
+      alert(`No se encontraron ingredientes de "${dish.name}" en tu refrigerador para consumir.`);
+      return;
+    }
+
+    const confirmConsume = window.confirm(`Vas a consumir (eliminar) los siguientes ingredientes de tu refrigerador al preparar el platillo:\n\n${removedNames.join(', ')}\n\n¿Deseas continuar?`);
+    if (!confirmConsume) return;
+
+    setIsSaving(true);
+    try {
+      const batch = writeBatch(db);
+      toRemoveIndices.forEach(id => {
+         batch.delete(doc(db, 'users', user.uid, 'fridge', id));
+      });
+      await batch.commit();
+      setFridge(prev => prev.filter(item => !toRemoveIndices.includes(item.id)));
+      alert(`¡Buen provecho! Se han consumido los ingredientes del refrigerador.`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/fridge/consumeBatch`);
+      alert("Hubo un error al consumir los ingredientes.");
+    }
+    setIsSaving(false);
+  };
+
+  const verifyAndAddDishIngredientsToShoppingList = async (dish: NutritionalDish) => {
+    const missingItems: any[] = [];
+    const inFridgeList: string[] = [];
+    
+    for (const ingredientObj of dish.ingredients) {
+      const ingredientName = typeof ingredientObj === "string" ? ingredientObj : ingredientObj.name;
+      const ingredientQuantity = typeof ingredientObj === "string" ? "" : ingredientObj.quantity;
+      const food = foods.find(f => f.name.toLowerCase() === ingredientName.toLowerCase());
+      
+      let isMissing = false;
+      let foodRef: any = null;
+
+      const currentDishName = dish.name;
+
+      if (food) {
+        const inFridge = fridge.some(item => item.foodId === food.id && ((item.dishName || (item as any).dishName) === currentDishName || (item.dishName || (item as any).dishName) === 'Básicos'));
+        const alreadyInShopping = shoppingList.some(item => item.foodId === food.id && (item.dishName === currentDishName || item.dishName === 'Básicos'));
+        
+        if (inFridge) {
+          inFridgeList.push(food.name);
+        } else if (!alreadyInShopping) {
+          isMissing = true;
+          foodRef = food;
+        }
+      } else {
+        isMissing = true;
+        foodRef = {
+          id: `custom_${Date.now()}_${Math.random().toString(36).substr(2,9)}`,
+          name: ingredientName,
+          category: dish.name,
+          status: 'libre'
+        };
+      }
+
+      if (isMissing && foodRef) {
+        missingItems.push({ ...foodRef, _recipeQty: ingredientQuantity });
+      }
+    }
+
+    if (missingItems.length === 0) {
+      alert(`¡Todo listo! Tienes todos los ingredientes para "${dish.name}" en tu refrigerador o lista de mercado.\n\nEn refrigerador: ${inFridgeList.length > 0 ? inFridgeList.join(', ') : 'Ninguno'}`);
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const batch = writeBatch(db);
+      const newShoppingItems: ShoppingItem[] = [];
+      const addedNames: string[] = [];
+
+      missingItems.forEach(food => {
+        let quantity = food._recipeQty;
+        if (!quantity) {
+          let portionInfo = food.notes ? `\nValor de 1 porción: ${food.notes}` : '';
+          quantity = window.prompt(`¿Qué cantidad en TAZAS, PIEZAS o CUCHARADAS de "${food.name}" necesitas para el platillo "${dish.name}"?\n(Escribe la cantidad, ej. "2 tazas", "3 piezas")${portionInfo}\n\nCalcularemos automáticamente los gramos o mililitros.`);
+          if (quantity === null) quantity = "";
+        }
+        
+        let finalName = getShoppingFinalName(food, quantity);
+
+        const docRef = doc(collection(db, 'users', user.uid, 'shoppingList'));
+        const newItem = {
+          foodId: food.id,
+          name: finalName,
+          category: `📝 Platillo: ${dish.name}`,
+          dishName: dish.name,
+          status: food.status,
+          bought: false,
+          createdAt: serverTimestamp()
+        };
+        batch.set(docRef, newItem);
+        newShoppingItems.push({ id: docRef.id, ...newItem } as ShoppingItem);
+        addedNames.push(finalName);
+      });
+
+      await batch.commit();
+      setShoppingList(prev => [...prev, ...newShoppingItems]);
+      
+      alert(
+        `Alerta de Mercado:\n\nSe agregaron ingredientes para "${dish.name}":\n` + 
+        addedNames.map(name => `• ${name}`).join('\n')
+      );
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/shoppingList/batch`);
+      alert("Hubo un error al agregar los ingredientes al mercado.");
+    }
+    setIsSaving(false);
+  };
+
+  const resetKitchenSystem = async () => {
+    const confirm = window.confirm("⚠️ ¿ESTÁS SEGURO? Esta acción ELIMINARÁ permanentEMENTE:\n- Todos los alimentos del refrigerador\n- Todos los platillos guardados\n- Toda la lista del mercado\n\nEsto dejará el sistema totalmente en blanco para reprogramarlo.");
+    if (!confirm) return;
+
+    setIsSaving(true);
+    try {
+      const batch = writeBatch(db);
+      // Clean Fridge
+      fridge.forEach(item => {
+        batch.delete(doc(db, 'users', user.uid, 'fridge', item.id));
+      });
+      // Clean Dishes
+      dishes.forEach(dish => {
+        batch.delete(doc(db, 'users', user.uid, 'nutritionalDishes', dish.id));
+      });
+      // Clean Shopping List
+      shoppingList.forEach(item => {
+        batch.delete(doc(db, 'users', user.uid, 'shoppingList', item.id));
+      });
+      
+      await batch.commit();
+      setFridge([]);
+      setDishes([]);
+      setShoppingList([]);
+      alert("✅ Sistema reiniciado. Todo ha sido borrado.");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `users/${user.uid}/resetSystem`);
     }
     setIsSaving(false);
   };
@@ -138,7 +713,7 @@ export default function NutritionModule({ user }: { user: User }) {
       const docRef = await addDoc(collection(db, 'users', user.uid, 'foodItems'), { 
         userId: user.uid, ...foodForm 
       });
-      setFoodForm({ name: '', category: FOOD_CATEGORIES[0], status: 'permitido', notes: '' });
+      setFoodForm({ name: '', category: FOOD_CATEGORIES[0], status: 'permitido', notes: '', unit: '' });
       fetchData();
     } catch (err) { 
       handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/foodItems`);
@@ -149,15 +724,20 @@ export default function NutritionModule({ user }: { user: User }) {
   const handleAddDish = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
+    let newDish: any = null;
     try {
-      await addDoc(collection(db, 'users', user.uid, 'nutritionalDishes'), {
-        userId: user.uid, ...dishForm
+      const docRef = await addDoc(collection(db, 'users', user.uid, 'nutritionalDishes'), {
+        userId: user.uid, ...dishForm, status: 'template'
       });
-      setDishForm({ name: '', ingredients: [], instructions: '' });
-      fetchData();
+      newDish = { id: docRef.id, userId: user.uid, ...dishForm, status: 'template' };
     } catch (err) { 
       handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/nutritionalDishes`);
     }
+    setDishForm({ name: '', ingredients: [], instructions: '' });
+    if (newDish) {
+      await verifyAndAddDishIngredientsToShoppingList(newDish);
+    }
+    await fetchData();
     setIsSaving(false);
   };
 
@@ -168,6 +748,11 @@ export default function NutritionModule({ user }: { user: User }) {
         userId: user.uid,
         generalIndications: planForm.indications,
         forbiddenGeneral: planForm.forbidden.split(',').map(s => s.trim()).filter(Boolean),
+        portions: plan?.portions || INITIAL_PORTIONS,
+        glucoseGoals: {
+          fasting: '80-130 mg/dL',
+          postMeal: '<180 mg/dL'
+        },
         updatedAt: serverTimestamp()
       };
       
@@ -184,6 +769,36 @@ export default function NutritionModule({ user }: { user: User }) {
     setIsSaving(false);
   };
 
+  const handleUpdateFoodStatus = async (foodId: string, newStatus: 'permitido' | 'moderado' | 'prohibido') => {
+    try {
+      const foodRef = doc(db, 'users', user.uid, 'foodItems', foodId);
+      await updateDoc(foodRef, { status: newStatus });
+      setFoods(foods.map(f => f.id === foodId ? { ...f, status: newStatus } : f));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `users/${user.uid}/foodItems/${foodId}`);
+    }
+  };
+
+  const handleImportInitialFoods = async () => {
+    setIsSaving(true);
+    try {
+      const batch = writeBatch(db);
+      INITIAL_FOODS.forEach(food => {
+        const docRef = doc(collection(db, 'users', user.uid, 'foodItems'));
+        batch.set(docRef, {
+          ...food,
+          userId: user.uid,
+          createdAt: serverTimestamp()
+        });
+      });
+      await batch.commit();
+      fetchData();
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/foodItems/batch`);
+    }
+    setIsSaving(false);
+  };
+
   const deleteItem = async (col: string, id: string) => {
     try {
       await deleteDoc(doc(db, 'users', user.uid, col, id));
@@ -193,9 +808,64 @@ export default function NutritionModule({ user }: { user: User }) {
     }
   };
 
-  // Stats
-  const dailyWater = logs.filter(l => startOfDay(l.timestamp).getTime() === startOfDay(new Date()).getTime() && l.mealType === 'hidratacion').reduce((a, b) => a + (b.waterAmount || 0), 0);
-  const dailyCalories = logs.filter(l => startOfDay(l.timestamp).getTime() === startOfDay(new Date()).getTime() && l.mealType !== 'hidratacion').reduce((a, b) => a + (b.calories || 0), 0);
+  const handleGenerateSuggestions = async () => {
+    setIsGenerating(true);
+    try {
+      // Pass the name and the notes (which contain the calculated grams/portions) to the AI
+      const allowed = foods
+        .filter(f => f.status === 'permitido')
+        .map(f => `${f.name} (Recomendación de porción: ${f.notes || 'al gusto'})`);
+      
+      const inFridge = fridge.map(f => f.name);
+      
+      const suggestions = await getNutritionalSuggestions(
+        allowed, 
+        plan?.portions || INITIAL_PORTIONS, 
+        selectedMealType,
+        inFridge
+      );
+      if (Array.isArray(suggestions)) {
+        setSuggestedDishes(suggestions);
+      }
+    } catch (err) {
+      console.error("Error generating suggestions:", err);
+    }
+    setIsGenerating(false);
+  };
+
+  const handleSaveSuggestedDish = async (dish: any) => {
+    setIsSaving(true);
+    let newDish: any = null;
+    try {
+      const docRef = await addDoc(collection(db, 'users', user.uid, 'nutritionalDishes'), {
+        userId: user.uid,
+        name: dish.name,
+        ingredients: dish.ingredients,
+        instructions: dish.instructions,
+        status: 'template'
+      });
+      newDish = {
+        id: docRef.id,
+        userId: user.uid,
+        name: dish.name,
+        ingredients: dish.ingredients,
+        instructions: dish.instructions,
+        status: 'template'
+      };
+      setSuggestedDishes(prev => prev.filter(d => d.name !== dish.name));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/nutritionalDishes`);
+    }
+    if (newDish) {
+      await verifyAndAddDishIngredientsToShoppingList(newDish);
+    }
+    await fetchData();
+    setIsSaving(false);
+  };
+
+  // Placeholder stats
+  const dailyWater = 0;
+  const dailyCalories = 0;
 
   const TabButton = ({ id, label, icon: Icon }: { id: Tab, label: string, icon: any }) => (
     <button
@@ -216,228 +886,892 @@ export default function NutritionModule({ user }: { user: User }) {
     <div className="space-y-8 max-w-6xl mx-auto pb-24">
       {/* Navigation Tabs */}
       <div className="flex flex-wrap gap-2 bg-surface p-2 rounded-3xl border border-border shadow-sm w-fit mx-auto">
-        <TabButton id="diario" label="Diario" icon={ClipboardList} />
-        <TabButton id="alimentos" label="Base de Alimentos" icon={ListChecks} />
-        <TabButton id="platillos" label="Mis Platillos" icon={Utensils} />
-        <TabButton id="plan" label="Plan Nutricional" icon={Info} />
+        <TabButton id="mercado" label="Mercado" icon={ListChecks} />
+        <TabButton id="cocina" label="Cocina" icon={Sparkles} />
+        <TabButton id="refrigerador" label="Refrigerador" icon={Package} />
+        <TabButton id="alimentos" label="Alimentos" icon={Utensils} />
+        <TabButton id="platillos" label="Platillos" icon={BookOpen} />
+        <TabButton id="plan" label="Mi Plan" icon={ClipboardList} />
       </div>
 
       <AnimatePresence mode="wait">
-        {activeTab === 'diario' && (
-          <motion.div key="diario" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-surface p-6 rounded-3xl border border-border shadow-sm flex items-center gap-4">
-                <div className="w-12 h-12 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600 border border-emerald-100"><Droplets className="w-6 h-6" /></div>
-                <div>
-                  <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Agua Hoy</p>
-                  <p className="text-2xl font-black text-text-main tabular-nums">{dailyWater} <span className="text-xs font-bold opacity-40">ml</span></p>
-                </div>
-              </div>
-              <div className="bg-surface p-6 rounded-3xl border border-border shadow-sm flex items-center gap-4 md:col-span-2">
-                 <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-600 border border-amber-100 shrink-0"><Utensils className="w-6 h-6" /></div>
-                 <div className="flex-1">
-                   <div className="flex justify-between items-end mb-1">
-                      <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Energía Ingerida</p>
-                      <p className="text-xs font-bold text-text-main">{dailyCalories} / 2000 <span className="text-[10px] opacity-40">kcal</span></p>
-                   </div>
-                   <div className="h-2 bg-background rounded-full overflow-hidden border border-border">
-                      <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(100, (dailyCalories / 2000) * 100)}%` }} className="h-full bg-amber-500 rounded-full shadow-[0_0_10px_rgba(245,158,11,0.3)]" />
-                   </div>
-                 </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-1">
-                <div className="bg-surface p-6 rounded-3xl border border-border shadow-sm space-y-6">
+        {activeTab === 'mercado' && (
+          <motion.div key="mercado" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+             {/* List of Foods to Add */}
+             <div className="lg:col-span-1 bg-surface p-6 rounded-[32px] border border-border shadow-sm flex flex-col h-[600px]">
+                <div className="flex items-center justify-between mb-6 pb-4 border-b border-border">
                   <div className="flex items-center gap-3">
                     <Plus className="w-5 h-5 text-primary" />
-                    <h3 className="text-lg font-black text-text-main tracking-tight">Nuevo Registro</h3>
+                    <h3 className="text-sm font-black text-text-main uppercase tracking-widest">Añadir al Mercado</h3>
                   </div>
-                  <form onSubmit={handleAddLog} className="space-y-6">
-                    <div className="grid grid-cols-4 gap-2">
-                      {MEAL_TYPES.map(t => (
-                        <button key={t.value} type="button" onClick={() => setMealForm({...mealForm, type: t.value})} className={cn("p-3 rounded-xl border text-xl flex items-center justify-center transition-all", mealForm.type === t.value ? "bg-primary border-primary shadow-lg shadow-primary/20 scale-105" : "bg-background border-border hover:bg-border/50")}>{t.icon}</button>
-                      ))}
-                    </div>
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest pl-1">{mealForm.type === 'hidratacion' ? 'Cantidad (ml)' : 'Descripción'}</label>
-                       {mealForm.type === 'hidratacion' ? (
-                         <input type="number" value={mealForm.amount} onChange={e => setMealForm({...mealForm, amount: e.target.value})} placeholder="250" className="w-full px-5 py-4 bg-background border border-border rounded-xl text-sm font-bold" />
-                       ) : (
-                         <textarea value={mealForm.description} onChange={e => setMealForm({...mealForm, description: e.target.value})} placeholder="¿Qué comiste?..." className="w-full px-5 py-4 bg-background border border-border rounded-xl text-sm font-medium h-24 resize-none" />
-                       )}
-                    </div>
-                    {mealForm.type !== 'hidratacion' && (
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest pl-1">Calorías Est. (kcal)</label>
-                        <input type="number" value={mealForm.amount} onChange={e => setMealForm({...mealForm, amount: e.target.value})} placeholder="0" className="w-full px-5 py-4 bg-background border border-border rounded-xl text-sm font-bold" />
-                      </div>
-                    )}
-                    <button type="submit" disabled={isSaving} className="w-full py-4 bg-primary text-white rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-primary-hover shadow-lg shadow-primary/20 transition-all flex items-center justify-center gap-2">
-                      {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Registrar
-                    </button>
-                  </form>
                 </div>
-              </div>
-              <div className="lg:col-span-2">
-                <div className="bg-surface p-6 rounded-3xl border border-border shadow-sm min-h-[400px]">
-                   <h3 className="text-lg font-black text-text-main tracking-tight mb-8">Registros Recientes</h3>
-                   <div className="space-y-4">
-                      {logs.length === 0 ? <p className="text-center py-20 text-text-muted text-xs font-bold uppercase tracking-widest opacity-30">Sin registros hoy</p> : logs.map(log => (
-                        <div key={log.id} className="group bg-background p-4 rounded-2xl border border-border flex items-center justify-between">
-                           <div className="flex items-center gap-4">
-                              <div className="w-10 h-10 rounded-xl bg-white border border-border flex items-center justify-center text-lg">{MEAL_TYPES.find(m => m.value === log.mealType)?.icon}</div>
-                              <div>
-                                 <p className="text-sm font-bold text-text-main">{log.description}</p>
-                                 <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">{format(log.timestamp, 'HH:mm')} {log.calories ? `• ${log.calories} kcal` : log.waterAmount ? `• ${log.waterAmount} ml` : ''}</p>
-                              </div>
-                           </div>
-                           <button onClick={() => deleteItem('nutritionLogs', log.id)} className="p-2 text-text-muted hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-4 h-4" /></button>
-                        </div>
-                      ))}
-                   </div>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
 
-        {activeTab === 'alimentos' && (
-          <motion.div key="alimentos" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-             <div className="lg:col-span-1 space-y-6">
-                <div className="bg-surface p-6 rounded-3xl border border-border shadow-sm space-y-6">
-                  <div className="flex items-center gap-3"><Plus className="w-5 h-5 text-primary" /><h3 className="text-lg font-black text-text-main tracking-tight">Agregar Alimento</h3></div>
-                  <form onSubmit={handleAddFood} className="space-y-4">
-                    <input type="text" placeholder="Nombre del alimento" value={foodForm.name} onChange={e => setFoodForm({...foodForm, name: e.target.value})} className="w-full px-5 py-4 bg-background border border-border rounded-xl text-sm font-bold" />
-                    <select value={foodForm.category} onChange={e => setFoodForm({...foodForm, category: e.target.value})} className="w-full px-5 py-4 bg-background border border-border rounded-xl text-sm font-bold">
-                       {FOOD_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <div className="flex gap-2">
-                       {['permitido', 'moderado', 'prohibido'].map(s => (
-                         <button key={s} type="button" onClick={() => setFoodForm({...foodForm, status: s as any})} className={cn("flex-1 py-3 rounded-xl border text-[10px] font-bold uppercase tracking-widest transition-all", foodForm.status === s ? (s === 'permitido' ? "bg-emerald-500 text-white border-emerald-500" : s === 'moderado' ? "bg-amber-500 text-white border-amber-500" : "bg-rose-500 text-white border-rose-500") : "bg-background text-text-muted border-border")}>
-                           {s}
-                         </button>
-                       ))}
-                    </div>
-                    <button type="submit" disabled={!foodForm.name} className="w-full py-4 bg-primary text-white rounded-xl font-bold text-xs uppercase tracking-widest">Añadir a Base</button>
-                  </form>
+                <div className="mb-4">
+                  <div className="relative group">
+                    <Search className={cn(
+                      "absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 transition-colors",
+                      marketSearch ? "text-primary" : "text-text-muted"
+                    )} />
+                    <input 
+                      type="text" 
+                      placeholder="Buscar o escribir nuevo..."
+                      value={marketSearch}
+                      onChange={e => setMarketSearch(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && marketSearch.trim()) {
+                          handleManualAddToMarket(marketSearch.trim());
+                        }
+                      }}
+                      className="w-full pl-11 pr-4 py-3.5 bg-background border border-border rounded-2xl text-xs font-bold focus:ring-4 focus:ring-primary/5 focus:border-primary transition-all"
+                    />
+                    {marketSearch.trim() && !foods.find(f => f.name.toLowerCase() === marketSearch.trim().toLowerCase()) && (
+                      <button 
+                        type="button"
+                        onClick={() => handleManualAddToMarket(marketSearch.trim())}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary text-white rounded-xl shadow-lg shadow-primary/20 hover:scale-105 transition-all"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
-             </div>
-             <div className="lg:col-span-2 bg-surface p-6 rounded-3xl border border-border shadow-sm">
-                <h3 className="text-lg font-black text-text-main tracking-tight mb-8">Base de Datos de Alimentos</h3>
-                <div className="space-y-8">
+                <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar">
                   {FOOD_CATEGORIES.map(cat => {
-                    const catFoods = foods.filter(f => f.category === cat);
-                    if (catFoods.length === 0) return null;
+                    const group = foods.filter(f => 
+                      f.category === cat && 
+                      f.status !== 'prohibido' &&
+                      (marketSearch === '' || f.name.toLowerCase().includes(marketSearch.toLowerCase()))
+                    );
+                    if (group.length === 0) return null;
                     return (
-                      <div key={cat} className="space-y-4">
-                        <h4 className="text-xs font-bold text-primary uppercase tracking-widest pl-2 border-l-2 border-primary">{cat}</h4>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          {catFoods.map(food => (
-                            <div key={food.id} className="group flex items-center justify-between p-4 bg-background rounded-2xl border border-border">
-                              <div className="flex items-center gap-3">
-                                <div className={cn("w-2 h-2 rounded-full", food.status === 'permitido' ? "bg-emerald-500" : food.status === 'moderado' ? "bg-amber-500" : "bg-rose-500")} />
-                                <span className="text-sm font-bold text-text-main">{food.name}</span>
-                              </div>
-                              <button onClick={() => deleteItem('foodItems', food.id)} className="p-2 text-text-muted hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-4 h-4" /></button>
-                            </div>
-                          ))}
+                      <div key={cat} className="space-y-2">
+                        <h4 className="text-[10px] font-black text-text-muted uppercase tracking-[0.2em]">{cat}</h4>
+                        <div className="space-y-1">
+                          {group.map(food => {
+                            const inFridge = fridge.some(f => f.foodId === food.id);
+                            return (
+                              <button 
+                                key={food.id}
+                                onClick={() => addToShoppingList(food)}
+                                className={cn(
+                                  "w-full flex items-center justify-between p-3 bg-background border border-border rounded-xl hover:border-primary/40 transition-all group",
+                                  inFridge && "opacity-40"
+                                )}
+                              >
+                                <div className="flex flex-col text-left">
+                                  <span className="text-xs font-bold text-text-main">{food.name} {inFridge && "🏡"}</span>
+                                  {food.notes && <span className="text-[8px] font-black text-text-muted uppercase tracking-tighter">{food.notes}</span>}
+                                </div>
+                                <Plus className="w-3.5 h-3.5 text-text-muted group-hover:text-primary transition-colors" />
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     );
                   })}
                 </div>
              </div>
+
+             {/* Shopping List */}
+             <div className="lg:col-span-2 bg-surface p-8 rounded-[40px] border border-border shadow-sm flex flex-col h-[600px]">
+                <div className="flex justify-between items-center mb-8">
+                  <div>
+                    <h3 className="text-xl font-black text-text-main tracking-tight">Lista del Mercado</h3>
+                    <p className="text-xs font-bold text-text-muted uppercase tracking-widest">{shoppingList.length} productos en lista</p>
+                  </div>
+                  <div className="flex gap-4">
+
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                  <div className="columns-1 md:columns-2 gap-6">
+                    {Object.entries(
+                      shoppingList.reduce((acc, item) => {
+                        const groupKey = item.dishName || 'Básicos';
+                        if (!acc[groupKey]) acc[groupKey] = [];
+                        acc[groupKey].push(item);
+                        return acc;
+                      }, {} as Record<string, ShoppingItem[]>)
+                    ).map(([groupName, items], index) => {
+                      const postItColors = [
+                        "bg-[#fef3c7] border-[#fde68a] text-[#78350f]", // amber
+                        "bg-[#dcfce7] border-[#bbf7d0] text-[#14532d]", // green
+                        "bg-[#e0f2fe] border-[#bae6fd] text-[#0c4a6e]", // sky
+                        "bg-[#fce7f3] border-[#fbcfe8] text-[#831843]", // pink
+                        "bg-[#f3e8ff] border-[#e9d5ff] text-[#581c87]", // purple
+                      ];
+                      const colorClass = postItColors[index % postItColors.length];
+                      const rotations = ["rotate-1", "-rotate-1", "rotate-2", "-rotate-2", "rotate-0"];
+                      const rotation = rotations[index % rotations.length];
+
+                      return (
+                        <div key={groupName} className={cn("inline-block w-full mb-6 p-5 rounded-br-2xl shadow-[2px_4px_10px_rgba(0,0,0,0.1)] transition-transform hover:scale-[1.02] border-t border-l", colorClass, rotation)}>
+                          <div className="flex justify-between items-center border-b border-black/10 pb-3 mb-3 px-1">
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-xs font-black uppercase tracking-widest">{groupName}</h4>
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            {items.map(item => (
+                              <div 
+                                key={item.id} 
+                                onClick={() => toggleBought(item.id, item.bought)}
+                                className={cn(
+                                  "flex items-center justify-between p-2 rounded transition-all cursor-pointer",
+                                  item.bought ? "opacity-60" : "hover:bg-black/5"
+                                )}
+                              >
+                                 <div className="flex items-center gap-3">
+                                    <div className={cn("w-5 h-5 flex-shrink-0 rounded border border-black/20 flex items-center justify-center transition-all bg-white/60 shadow-inner", item.bought && "bg-current border-current text-white")}>
+                                      {item.bought && <CheckCircle2 className="w-3.5 h-3.5" />}
+                                    </div>
+                                    <div className="flex flex-col">
+                                      <span className={cn("text-sm font-bold leading-tight", item.bought && "line-through opacity-80")}>{item.name}</span>
+                                    </div>
+                                 </div>
+                                 <button 
+                                  onClick={(e) => { e.stopPropagation(); deleteItem('shoppingList', item.id); }}
+                                  className="p-1.5 opacity-40 hover:opacity-100 hover:text-red-600 transition-colors"
+                                 >
+                                   <Trash2 className="w-4 h-4" />
+                                 </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {shoppingList.length === 0 && (
+                    <div className="h-full flex flex-col items-center justify-center opacity-20 py-20">
+                      <ListChecks className="w-16 h-16 mb-4" />
+                      <p className="text-xs font-black uppercase tracking-widest">Lista vacía</p>
+                    </div>
+                  )}
+                </div>
+             </div>
           </motion.div>
         )}
 
-        {activeTab === 'platillos' && (
-          <motion.div key="platillos" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-             <div className="lg:col-span-1 bg-surface p-6 rounded-3xl border border-border shadow-sm space-y-6 self-start">
-               <div className="flex items-center gap-3"><Plus className="w-5 h-5 text-primary" /><h3 className="text-lg font-black text-text-main tracking-tight">Crear Platillo</h3></div>
-               <form onSubmit={handleAddDish} className="space-y-4">
-                  <input type="text" placeholder="Nombre del platillo" value={dishForm.name} onChange={e => setDishForm({...dishForm, name: e.target.value})} className="w-full px-5 py-4 bg-background border border-border rounded-xl text-sm font-bold" />
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest pl-1">Ingredientes</label>
-                    <div className="max-h-40 overflow-y-auto space-y-1 p-2 bg-background border border-border rounded-xl">
-                       {foods.filter(f => f.status !== 'prohibido').map(f => (
-                         <label key={f.id} className="flex items-center gap-3 p-2 hover:bg-surface rounded-lg cursor-pointer transition-colors">
-                           <input type="checkbox" checked={dishForm.ingredients.includes(f.name)} onChange={e => {
-                             const ingredients = e.target.checked ? [...dishForm.ingredients, f.name] : dishForm.ingredients.filter(i => i !== f.name);
-                             setDishForm({...dishForm, ingredients});
-                           }} className="w-4 h-4 rounded border-border text-primary focus:ring-primary" />
-                           <span className="text-xs font-medium text-text-main">{f.name}</span>
-                         </label>
-                       ))}
+        {activeTab === 'cocina' && (
+          <motion.div key="cocina" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+            <div className="bg-surface p-8 rounded-[40px] border border-border shadow-sm">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-border pb-8 mb-8">
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 bg-primary/10 rounded-[20px] flex items-center justify-center text-primary border border-primary/20">
+                    <Sparkles className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-black text-text-main tracking-tight">La Cocina</h3>
+                    <p className="text-xs font-bold text-text-muted uppercase tracking-widest">Preparación de platillos autorizados</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {dishes.filter(d => d.status === 'preparando').map(dish => (
+                  <div key={dish.id} className="bg-white p-6 rounded-[32px] border border-primary/20 shadow-md shadow-primary/5 flex flex-col">
+                    <div className="flex justify-between items-start mb-4">
+                      <h4 className="text-lg font-black text-text-main leading-tight">{dish.name}</h4>
+                      <div className="px-3 py-1 bg-green-100 text-green-600 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> En Preparación
+                      </div>
+                    </div>
+                    <div className="flex-1 space-y-6 mb-6">
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Ingredientes listos:</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {dish.ingredients.map((ing, idx) => (
+                            <span key={idx} className="px-2 py-1 rounded-lg text-[10px] font-bold uppercase border bg-green-50 border-green-100 text-green-700">
+                              {typeof ing === 'string' ? ing : ing.name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      {dish.instructions && (
+                        <div className="space-y-3">
+                          <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest flex items-center gap-1.5">
+                            <BookOpen className="w-3 h-3 text-primary" /> Pasos de preparación:
+                          </p>
+                          <div className="space-y-2.5">
+                            {dish.instructions.split(/(?=\d+\.)/).filter(Boolean).map((step, idx) => {
+                              const stepMatch = step.match(/(\d+)\.\s*(.*)/);
+                              const stepNumber = stepMatch ? stepMatch[1] : (idx + 1).toString();
+                              const stepText = stepMatch ? stepMatch[2] : step;
+                              
+                              // Extract time if present (e.g., (10 min de cocción))
+                              const timeMatch = stepText.match(/\(([^)]*(?:min|minutos|hr|hora|h|seg|segundos|cocción|preparación)[^)]*)\)/i);
+                              const timeText = timeMatch ? timeMatch[1] : null;
+                              const cleanStepText = timeText ? stepText.replace(timeMatch[0], '').trim() : stepText;
+
+                              return (
+                                <div key={idx} className="flex gap-3 bg-surface/50 p-3 rounded-2xl border border-border/50 group">
+                                  <div className="flex-shrink-0 w-6 h-6 bg-primary/10 rounded-lg flex items-center justify-center text-[10px] font-black text-primary border border-primary/20">
+                                    {stepNumber}
+                                  </div>
+                                  <div className="flex-1">
+                                    <p className="text-xs text-text-main font-medium leading-relaxed">{cleanStepText}</p>
+                                    {timeText && (
+                                      <div className="mt-1.5 flex items-center gap-1.5 bg-primary/5 px-2 py-1 rounded-lg w-fit border border-primary/10">
+                                        <Clock className="w-2.5 h-2.5 text-primary" />
+                                        <span className="text-[9px] font-black text-primary uppercase tracking-tighter">
+                                          {timeText}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          setIsSaving(true);
+                          await deleteDoc(doc(db, 'users', user.uid, 'nutritionalDishes', dish.id));
+                          setDishes(prev => prev.filter(d => d.id !== dish.id));
+                          if (window.confirm("¡Platillo preparado con éxito! ¿Deseas preparar otro platillo?")) {
+                            setActiveTab('refrigerador');
+                          } else {
+                            setActiveTab('platillos');
+                          }
+                        } catch (e) {
+                          handleFirestoreError(e, OperationType.DELETE, `users/${user.uid}/nutritionalDishes/${dish.id}`);
+                        } finally {
+                          setIsSaving(false);
+                        }
+                      }}
+                      className="w-full py-4 bg-primary text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-primary-dark transition-all flex items-center justify-center gap-2"
+                    >
+                      <CheckCircle2 className="w-4 h-4" /> Finalizar Preparación
+                    </button>
+                  </div>
+                ))}
+                
+                {dishes.filter(d => d.status === 'preparando').length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-20 text-center col-span-full">
+                    <Sparkles className="w-16 h-16 text-text-muted opacity-20 mb-4" />
+                    <h5 className="text-sm font-bold text-text-muted uppercase tracking-widest">Cocina en espera</h5>
+                    <p className="text-xs text-text-muted mt-2 max-w-xs">Palomea los ingredientes en tu Refrigerador para enviarlos aquí.</p>
+                    <button onClick={() => setActiveTab('refrigerador')} className="mt-6 px-6 py-3 bg-surface border border-border rounded-xl text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary/5 transition-all">Ir al Refrigerador</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {activeTab === 'refrigerador' && (
+          <motion.div key="refrigerador" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
+             <div className="bg-surface p-8 rounded-[40px] border border-border shadow-sm">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-border pb-8 mb-8">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 bg-primary/10 rounded-[20px] flex items-center justify-center text-primary border border-primary/20">
+                      <Package className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-black text-text-main tracking-tight">Mi Refrigerador</h3>
+                      <p className="text-xs font-bold text-text-muted uppercase tracking-widest">{fridge.length} artículos disponibles</p>
                     </div>
                   </div>
-                  <textarea placeholder="Instrucciones de preparación (opcional)" value={dishForm.instructions} onChange={e => setDishForm({...dishForm, instructions: e.target.value})} className="w-full px-5 py-4 bg-background border border-border rounded-xl text-sm font-medium h-24 resize-none" />
-                  <button type="submit" disabled={!dishForm.name || dishForm.ingredients.length === 0} className="w-full py-4 bg-primary text-white rounded-xl font-bold text-xs uppercase tracking-widest">Guardar Platillo</button>
-               </form>
-             </div>
-             <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-6">
-               {dishes.map(dish => (
-                 <div key={dish.id} className="group bg-surface p-6 rounded-3xl border border-border shadow-sm hover:border-primary/30 transition-all flex flex-col">
-                   <div className="flex justify-between items-start mb-4">
-                      <h4 className="text-lg font-black text-text-main tracking-tight leading-tight">{dish.name}</h4>
-                      <button onClick={() => deleteItem('nutritionalDishes', dish.id)} className="p-2 text-text-muted hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-4 h-4" /></button>
-                   </div>
-                   <div className="flex flex-wrap gap-1.5 mb-6">
-                      {dish.ingredients.map(ing => (
-                        <span key={ing} className="px-2 py-1 bg-background border border-border rounded-lg text-[10px] font-bold text-text-muted uppercase">{ing}</span>
-                      ))}
-                   </div>
-                   {dish.instructions && (
-                     <div className="mt-auto pt-4 border-t border-border">
-                        <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-2">Preparación</p>
-                        <p className="text-xs text-text-main leading-relaxed font-medium line-clamp-3">{dish.instructions}</p>
-                     </div>
-                   )}
-                 </div>
-               ))}
+                  <button onClick={() => setActiveTab('cocina')} className="px-6 py-3 bg-primary text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-primary-dark transition-all flex items-center gap-2">
+                    <Utensils className="w-4 h-4" /> Ver Cocina
+                  </button>
+                </div>
+
+                <div className="space-y-12">
+                  {fridge.length === 0 ? (
+                    <div className="py-20 text-center border-2 border-dashed border-border rounded-[40px]">
+                      <Package className="w-16 h-16 text-text-muted opacity-20 mx-auto mb-4" />
+                      <p className="text-xs font-bold text-text-muted uppercase tracking-widest">El refrigerador está vacío.</p>
+                      <button onClick={() => setActiveTab('mercado')} className="mt-4 px-6 py-3 bg-surface border border-border rounded-xl text-[10px] font-black uppercase tracking-widest text-primary hover:bg-primary/5 transition-all">Ir al Mercado</button>
+                    </div>
+                  ) : (
+                    Object.entries(fridge.reduce((acc, item) => {
+                      const group = (item as any).dishName || 'Básicos';
+                      if (!acc[group]) acc[group] = [];
+                      acc[group].push(item);
+                      return acc;
+                    }, {} as Record<string, FridgeItem[]>)).map(([dishName, items]) => {
+                      const isDish = dishName !== 'Básicos';
+                      const allChecked = items.every(i => i.confirmed);
+
+                      return (
+                        <div key={dishName} className="bg-white p-8 rounded-[32px] border border-border shadow-sm">
+                          <div className="flex justify-between items-start mb-6">
+                            <div>
+                              <h4 className="text-lg font-black text-text-main tracking-tight capitalize">{dishName}</h4>
+                              <p className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">{items.length} Ingredientes</p>
+                            </div>
+                            <div className="flex gap-2">
+                              <button 
+                                onClick={async () => {
+                                  try {
+                                    setIsSaving(true);
+                                    const batch = writeBatch(db);
+                                    items.forEach(i => {
+                                      if (!i.confirmed) {
+                                        batch.update(doc(db, 'users', user.uid, 'fridge', i.id), { confirmed: true });
+                                      }
+                                    });
+                                    await batch.commit();
+                                    
+                                    if (dishName !== 'Básicos') {
+                                      await sendDishToKitchen(dishName, items);
+                                    } else {
+                                      const itemIds = new Set(items.map(i => i.id));
+                                      setFridge(prev => prev.map(f => itemIds.has(f.id) ? { ...f, confirmed: true } : f));
+                                    }
+                                  } catch (e) {
+                                    handleFirestoreError(e, OperationType.UPDATE, `users/${user.uid}/fridge/confirmBatch`);
+                                  } finally {
+                                    setIsSaving(false);
+                                  }
+                                }}
+                                disabled={allChecked || isSaving}
+                                className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-100 disabled:opacity-30 flex items-center gap-2"
+                              >
+                                <CheckCircle2 className="w-3 h-3" /> {dishName !== 'Básicos' ? 'Confirmar y Enviar a Cocina' : 'Confirmar Todo'}
+                              </button>
+                              <button 
+                                onClick={async () => {
+                                  if (window.confirm(`¿Cancelar preparación y vaciar "${dishName}" del refrigerador?`)) {
+                                    setIsSaving(true);
+                                    try {
+                                      const batch = writeBatch(db);
+                                      items.forEach(i => {
+                                        batch.delete(doc(db, 'users', user.uid, 'fridge', i.id));
+                                      });
+                                      await batch.commit();
+                                      setFridge(prev => prev.filter(f => !items.find(i => i.id === f.id)));
+                                    } catch (e) {
+                                      handleFirestoreError(e, OperationType.DELETE, `users/${user.uid}/fridge/clearGroup`);
+                                    } finally {
+                                      setIsSaving(false);
+                                    }
+                                  }
+                                }}
+                                className="p-2 text-text-muted hover:text-rose-500 transition-colors"
+                                title="Cancelar / Eliminar"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {items.map(item => (
+                              <button 
+                                key={item.id} 
+                                onClick={() => toggleFridgeCheck(item)}
+                                className={cn(
+                                  "flex items-center gap-3 p-4 border rounded-2xl transition-all text-left",
+                                  item.confirmed 
+                                    ? "bg-primary/5 border-primary/20" 
+                                    : "bg-background border-border hover:border-primary/20"
+                                )}
+                              >
+                                <div className={cn(
+                                  "w-5 h-5 rounded border flex items-center justify-center transition-colors",
+                                  item.confirmed ? "bg-primary border-primary text-white" : "bg-white border-border text-transparent"
+                                )}>
+                                  <CheckCircle2 className="w-3 h-3" />
+                                </div>
+                                <div className="flex flex-col">
+                                  <span className={cn("text-sm font-bold", item.confirmed ? "text-primary" : "text-text-main")}>{item.name}</span>
+                                  <span className="text-[9px] font-black text-text-muted uppercase tracking-tighter">{item.category}</span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
              </div>
           </motion.div>
         )}
 
-        {activeTab === 'plan' && (
-          <motion.div key="plan" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.05 }} className="max-w-3xl mx-auto w-full space-y-8">
-            <div className="bg-surface p-8 rounded-3xl border border-border shadow-sm space-y-8">
-              <div className="flex items-center gap-4 border-b border-border pb-6">
-                 <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 border border-indigo-100"><ClipboardList className="w-7 h-7" /></div>
-                 <div>
-                    <h3 className="text-2xl font-black text-text-main tracking-tight">Indicaciones de Nutriología</h3>
-                    <p className="text-xs font-bold text-text-muted uppercase tracking-widest">Guía estratégica personalizada</p>
+        {activeTab === 'alimentos' && (
+          <motion.div key="alimentos" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
+             {/* Selector de Categorías - Estilo Handbook */}
+             <div className="grid grid-cols-4 sm:grid-cols-4 lg:grid-cols-8 gap-2">
+                {FOOD_CATEGORIES.map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => {
+                      setSelectedCategory(cat);
+                      setFoodForm({...foodForm, category: cat});
+                    }}
+                    className={cn(
+                      "p-3 rounded-2xl border text-[9px] font-bold uppercase tracking-tight transition-all flex flex-col items-center gap-2 text-center",
+                      selectedCategory === cat 
+                        ? "bg-primary text-white border-primary shadow-lg shadow-primary/10" 
+                        : "bg-surface border-border text-text-muted hover:border-primary/30"
+                    )}
+                  >
+                    <span className="text-xl">
+                      {cat === 'Frutas' ? '🍎' : cat === 'Cereales' ? '🌾' : cat === 'Verduras' ? '🥦' : cat === 'Leguminosas' ? '🫘' : cat === 'Alimentos de origen animal' ? '🍗' : cat === 'Grasas' ? '🥑' : cat === 'Lácteos/bebida vegetal' ? '🥛' : '🥜'}
+                    </span>
+                    <span className="truncate w-full">{cat}</span>
+                  </button>
+                ))}
+             </div>
+
+             <div className="bg-surface p-6 rounded-[32px] border border-border shadow-sm">
+                {/* Filtros de Estado y Importación */}
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
+                  <div className="flex bg-background p-1.5 rounded-2xl border border-border">
+                    <button 
+                      onClick={() => setSelectedStatus('all')}
+                      className={cn("px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all", selectedStatus === 'all' ? "bg-text-main text-white" : "text-text-muted hover:text-text-main")}
+                    >
+                      Todos
+                    </button>
+                    {['permitido', 'moderado', 'prohibido'].map(s => (
+                      <button 
+                        key={s}
+                        onClick={() => setSelectedStatus(s)}
+                        className={cn(
+                          "px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2",
+                          selectedStatus === s 
+                            ? (s === 'permitido' ? "bg-emerald-500 text-white" : s === 'moderado' ? "bg-amber-500 text-white" : "bg-rose-500 text-white") 
+                            : "text-text-muted hover:text-text-main"
+                        )}
+                      >
+                        <div className={cn("w-1.5 h-1.5 rounded-full", s === 'permitido' ? "bg-emerald-500" : s === 'moderado' ? "bg-amber-500" : "bg-rose-500", selectedStatus === s && "bg-white")} />
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    {foods.length === 0 && (
+                      <button 
+                        onClick={handleImportInitialFoods} 
+                        disabled={isSaving}
+                        className="px-4 py-2 bg-primary/10 text-primary hover:bg-primary/20 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2"
+                      >
+                        {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                        Importar Guía Base
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Formulario Compacto */}
+                <form onSubmit={handleAddFood} className="flex flex-col sm:flex-row gap-3 p-3 bg-background border border-border rounded-2xl mb-8">
+                  <div className="flex-1 flex flex-col sm:flex-row items-center gap-3 px-3">
+                    <div className="w-full flex items-center gap-3">
+                      <Search className="w-4 h-4 text-text-muted" />
+                      <input 
+                        type="text" 
+                        placeholder={`Registrar nuevo en ${selectedCategory}...`}
+                        value={foodForm.name} 
+                        onChange={e => setFoodForm({...foodForm, name: e.target.value})} 
+                        className="w-full bg-transparent border-none text-sm font-bold focus:ring-0 p-0" 
+                      />
+                    </div>
+                    <div className="w-full sm:w-auto flex items-center gap-2 border-t sm:border-t-0 sm:border-l border-border pt-2 sm:pt-0 sm:pl-3">
+                      <input 
+                        type="text" 
+                        placeholder="Ud. (ej. kg)"
+                        value={foodForm.unit || ''}
+                        onChange={e => setFoodForm({...foodForm, unit: e.target.value})}
+                        className="w-20 bg-transparent border-none text-xs text-text-muted font-bold focus:ring-0 p-0 sm:text-right"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-1 bg-surface p-1 rounded-xl shrink-0">
+                     {['permitido', 'moderado', 'prohibido'].map(s => (
+                       <button 
+                        key={s} 
+                        type="button" 
+                        onClick={() => setFoodForm({...foodForm, status: s as any})} 
+                        className={cn(
+                          "px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all",
+                          foodForm.status === s 
+                            ? (s === 'permitido' ? "bg-emerald-500 text-white" : s === 'moderado' ? "bg-amber-500 text-white" : "bg-rose-500 text-white") 
+                            : "text-text-muted hover:text-text-main"
+                        )}
+                       >
+                         {s === 'permitido' ? 'P' : s === 'moderado' ? 'M' : 'X'}
+                       </button>
+                     ))}
+                  </div>
+                  <button 
+                    type="submit" 
+                    disabled={!foodForm.name || isSaving} 
+                    className="px-6 py-2 bg-primary text-white rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-primary-hover shadow-lg shadow-primary/10 flex items-center justify-center gap-2"
+                  >
+                    {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    Guardar
+                  </button>
+                </form>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <AnimatePresence mode="popLayout">
+                    {foods
+                      .filter(f => f.category === selectedCategory && (selectedStatus === 'all' || f.status === selectedStatus))
+                      .map(food => (
+                        <motion.div 
+                          layout
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.9 }}
+                          key={food.id} 
+                          className="group flex flex-col p-4 bg-background rounded-2xl border border-border hover:border-primary/20 transition-all hover:shadow-md"
+                        >
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="flex flex-col">
+                              <span className="text-sm font-bold text-text-main leading-tight mb-1">{food.name}</span>
+                              <div className="flex flex-col gap-1 mt-1">
+                                {food.notes && <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">{food.notes}</span>}
+                              </div>
+                            </div>
+                            <button 
+                              onClick={() => deleteItem('foodItems', food.id)} 
+                              className="p-1.5 text-text-muted hover:text-rose-500 transition-all"
+                              title="Eliminar alimento"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                          
+                          <div className="flex items-center justify-between pt-3 border-t border-border/50">
+                            <span className="text-[9px] font-black uppercase tracking-[0.15em] text-text-muted opacity-40">Cambiar estado</span>
+                            <div className="flex gap-1.5">
+                              {(['permitido', 'moderado', 'prohibido'] as const).map(s => (
+                                <button
+                                  key={s}
+                                  onClick={() => handleUpdateFoodStatus(food.id, s)}
+                                  className={cn(
+                                    "w-6 h-6 rounded-lg flex items-center justify-center text-[8px] font-black transition-all",
+                                    food.status === s
+                                      ? (s === 'permitido' ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/20" : s === 'moderado' ? "bg-amber-500 text-white shadow-lg shadow-amber-500/20" : "bg-rose-500 text-white shadow-lg shadow-rose-500/20")
+                                      : "bg-surface border border-border text-text-muted hover:border-primary/40"
+                                  )}
+                                >
+                                  {s === 'permitido' ? 'P' : s === 'moderado' ? 'M' : 'X'}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))}
+                  </AnimatePresence>
+                  {foods.filter(f => f.category === selectedCategory && (selectedStatus === 'all' || f.status === selectedStatus)).length === 0 && (
+                    <div className="col-span-full py-20 text-center">
+                      <div className="w-16 h-16 bg-background rounded-full flex items-center justify-center mx-auto mb-4 border border-border">
+                        <Search className="w-6 h-6 text-text-muted opacity-20" />
+                      </div>
+                      <p className="text-xs font-bold text-text-muted uppercase tracking-[0.2em] opacity-40">Sin resultados en esta combinación</p>
+                    </div>
+                  )}
+                </div>
+             </div>
+          </motion.div>
+        )}
+
+         {activeTab === 'platillos' && (
+          <motion.div key="platillos" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-8">
+             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+               <div className="lg:col-span-1 bg-surface p-6 rounded-3xl border border-border shadow-sm space-y-6 self-start">
+                 <div className="flex items-center gap-3"><Plus className="w-5 h-5 text-primary" /><h3 className="text-lg font-black text-text-main tracking-tight">Crear Platillo</h3></div>
+                 <form onSubmit={handleAddDish} className="space-y-4">
+                    <input type="text" placeholder="Nombre del platillo" value={dishForm.name} onChange={e => setDishForm({...dishForm, name: e.target.value})} className="w-full px-5 py-4 bg-background border border-border rounded-xl text-sm font-bold" />
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest pl-1">Ingredientes</label>
+                      <div className="max-h-40 overflow-y-auto space-y-1 p-2 bg-background border border-border rounded-xl">
+                         {foods.filter(f => f.status !== 'prohibido').map(f => (
+                           <label key={f.id} className="flex items-center gap-3 p-2 hover:bg-surface rounded-lg cursor-pointer transition-colors">
+                             <input type="checkbox" checked={dishForm.ingredients.some(i => i.name === f.name)} onChange={e => {
+                               const ingredients = e.target.checked ? [...dishForm.ingredients, {name: f.name, quantity: ''}] : dishForm.ingredients.filter(i => i.name !== f.name);
+                               setDishForm({...dishForm, ingredients});
+                             }} className="w-4 h-4 rounded border-border text-primary focus:ring-primary" />
+                             <span className="text-xs font-medium text-text-main">{f.name}</span>
+                           </label>
+                         ))}
+                      </div>
+                    </div>
+                    <textarea placeholder="Instrucciones de preparación (opcional)" value={dishForm.instructions} onChange={e => setDishForm({...dishForm, instructions: e.target.value})} className="w-full px-5 py-4 bg-background border border-border rounded-xl text-sm font-medium h-24 resize-none" />
+                    <button type="submit" disabled={!dishForm.name || dishForm.ingredients.length === 0} className="w-full py-4 bg-primary text-white rounded-xl font-bold text-xs uppercase tracking-widest">Guardar Platillo</button>
+                 </form>
+
+                 <div className="pt-6 border-t border-border space-y-4">
+                    <div className="flex flex-col gap-3">
+                       <h4 className="text-xs font-black text-text-main uppercase tracking-widest flex items-center gap-2">
+                          <Brain className="w-4 h-4 text-indigo-500" />
+                          Sugerencias IA por Momento
+                       </h4>
+                       <div className="grid grid-cols-2 gap-2">
+                          {[
+                            { id: 'desayuno', label: 'Desayuno', icon: '🍳' },
+                            { id: 'colación matutina', label: 'Col. Matutina', icon: '🍎' },
+                            { id: 'comida', label: 'Comida', icon: '🍱' },
+                            { id: 'colación vespertina', label: 'Col. Vespertina', icon: '🥜' },
+                            { id: 'cena', label: 'Cena', icon: '🥣' }
+                          ].map(meal => (
+                            <button
+                              key={meal.id}
+                              type="button"
+                              onClick={() => setSelectedMealType(meal.id)}
+                              className={cn(
+                                "flex items-center gap-2 px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-tighter transition-all border",
+                                selectedMealType === meal.id 
+                                  ? "bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-100" 
+                                  : "bg-background text-indigo-600 border-indigo-100 hover:border-indigo-300"
+                              )}
+                            >
+                              <span>{meal.icon}</span>
+                              <span className="truncate">{meal.label}</span>
+                            </button>
+                          ))}
+                       </div>
+                       <button 
+                        type="button"
+                        onClick={handleGenerateSuggestions} 
+                        disabled={isGenerating || foods.filter(f => f.status === 'permitido').length === 0}
+                        className="w-full mt-2 py-3 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl transition-all disabled:opacity-30 flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest border border-indigo-100"
+                       >
+                         {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                         {isGenerating ? 'Generando...' : `Sugerir ${selectedMealType}`}
+                       </button>
+                    </div>
+                    <p className="text-[10px] text-text-muted font-medium leading-tight">Genera platillos basados en tus alimentos permitidos y plan de porciones para el momento del día seleccionado.</p>
+                 </div>
+               </div>
+               <div className="lg:col-span-2 space-y-8">
+                 {suggestedDishes.length > 0 && (
+                   <div className="space-y-4">
+                      <h4 className="text-xs font-black text-indigo-600 uppercase tracking-[0.2em] pl-2 flex items-center gap-2">
+                        <Sparkles className="w-4 h-4" />
+                        Sugerencias Personalizadas
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {suggestedDishes.map((s, i) => (
+                          <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.1 }} key={i} className="relative group bg-indigo-50/50 border border-indigo-100 p-5 rounded-3xl space-y-4">
+                            <button 
+                              onClick={() => setSuggestedDishes(prev => prev.filter((_, idx) => idx !== i))}
+                              className="absolute top-3 right-3 p-1.5 text-indigo-300 hover:text-rose-500 transition-colors"
+                              title="Descartar sugerencia"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                            <div>
+                               <h5 className="text-sm font-black text-indigo-900 leading-tight mb-1 pr-6">{s.name}</h5>
+                               <p className="text-[10px] text-indigo-700 font-medium italic">"{s.rationale}"</p>
+                            </div>
+                            <div className="flex flex-wrap gap-1">
+                               {s.ingredients.slice(0, 4).map((ing: any) => {
+                                 const name = typeof ing === 'string' ? ing : ing.name;
+                                 return <span key={name} className="px-2 py-0.5 bg-white border border-indigo-100 rounded-md text-[9px] font-bold text-indigo-600 uppercase">{name}</span>
+                               })}
+                               {s.ingredients.length > 4 && <span className="text-[9px] font-bold text-indigo-400">+{s.ingredients.length - 4} más</span>}
+                            </div>
+                            <button 
+                              onClick={() => handleSaveSuggestedDish(s)}
+                              disabled={isSaving}
+                              className="w-full py-2 bg-indigo-600 text-white rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
+                            >
+                              {isSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} Añadir a Mis Platillos
+                            </button>
+                          </motion.div>
+                        ))}
+                      </div>
+                   </div>
+                 )}
+
+                 <div className="space-y-4">
+                    <h4 className="text-xs font-black text-text-main uppercase tracking-[0.2em] pl-2">Mis Platillos Guardados</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                      {dishes.filter(d => d.status !== 'preparando').length === 0 ? (
+                        <div className="col-span-full py-20 bg-surface rounded-[40px] border border-dashed border-border flex flex-col items-center justify-center text-center px-10">
+                           <Utensils className="w-12 h-12 text-text-muted opacity-20 mb-4" />
+                           <p className="text-xs font-bold text-text-muted uppercase tracking-[0.2em]">Aún no tienes platillos registrados</p>
+                        </div>
+                      ) : dishes.filter(d => d.status !== 'preparando').map(dish => (
+                        <div key={dish.id} className="group bg-surface p-6 rounded-[32px] border border-border shadow-sm hover:border-primary/30 transition-all flex flex-col">
+                          <div className="flex justify-between items-start mb-4">
+                             <h4 className="text-base font-black text-text-main tracking-tight leading-tight">{dish.name}</h4>
+                             <div className="flex gap-2">
+                                <button
+                                  onClick={() => consumeDishIngredientsFromFridge(dish)}
+                                  disabled={isSaving}
+                                  className="p-2 text-indigo-500 hover:bg-indigo-50 rounded-lg transition-all"
+                                  title="Preparar y consumir del refri"
+                                >
+                                  <Utensils className="w-4 h-4" />
+                                </button>
+                                <button 
+                                  onClick={() => verifyAndAddDishIngredientsToShoppingList(dish)}
+                                  disabled={isSaving}
+                                  className="p-2 text-primary hover:bg-primary/10 rounded-lg transition-all"
+                                  title="Verificar refri y agregar a mercado"
+                                >
+                                  <ListChecks className="w-4 h-4" />
+                                </button>
+                                <button onClick={() => deleteItem('nutritionalDishes', dish.id)} className="p-2 text-text-muted hover:text-rose-500 transition-all" title="Eliminar platillo"><Trash2 className="w-4 h-4" /></button>
+                             </div>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5 mb-6">
+                             {dish.ingredients.map(ing => {
+                                 const name = typeof ing === 'string' ? ing : ing.name;
+                                 const qty = typeof ing === 'string' ? '' : (ing.quantity ? ' - ' + ing.quantity : '');
+                                 return <span key={name} className="px-2 py-1 bg-background border border-border rounded-lg text-[9px] font-bold text-text-muted uppercase">{name}{qty}</span>
+                             })}
+                          </div>
+                          {dish.instructions && (
+                            <div className="mt-auto pt-4 border-t border-border">
+                               <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-2">Preparación</p>
+                               <p className="text-xs text-text-main leading-relaxed font-medium line-clamp-3">{dish.instructions}</p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                 </div>
+               </div>
+             </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'plan' && (
+          <motion.div key="plan" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.05 }} className="max-w-4xl mx-auto w-full space-y-8">
+            <div className="bg-surface p-8 rounded-[40px] border border-border shadow-sm space-y-10">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-border pb-8">
+                 <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 bg-primary/10 rounded-[20px] flex items-center justify-center text-primary border border-primary/20"><ClipboardList className="w-8 h-8" /></div>
+                    <div>
+                       <h3 className="text-2xl font-black text-text-main tracking-tight">Plan de Alimentación</h3>
+                       <p className="text-xs font-bold text-text-muted uppercase tracking-widest">Guía Médica ISSSTE • Nutrióloga</p>
+                    </div>
+                 </div>
+                 <div className="flex gap-4">
+                    <div className="bg-emerald-50 px-5 py-3 rounded-2xl border border-emerald-100 flex flex-col items-center">
+                       <span className="text-[10px] font-black text-emerald-800 uppercase tracking-tighter">Ayuno</span>
+                       <span className="text-sm font-black text-emerald-600">80-130</span>
+                    </div>
+                    <div className="bg-amber-50 px-5 py-3 rounded-2xl border border-amber-100 flex flex-col items-center">
+                       <span className="text-[10px] font-black text-amber-800 uppercase tracking-tighter">Post-comida</span>
+                       <span className="text-sm font-black text-amber-600">&lt;180</span>
+                    </div>
                  </div>
               </div>
 
-              <div className="grid gap-8">
-                <div className="space-y-4">
-                   <div className="flex items-center gap-2"><CheckCircle2 className="w-5 h-5 text-emerald-500" /><h4 className="text-sm font-black text-text-main uppercase tracking-tight">Indicaciones Generales</h4></div>
-                   <textarea value={planForm.indications} onChange={e => setPlanForm({...planForm, indications: e.target.value})} placeholder="Ej: Beber 2L de agua, evitar azúcares refinados, priorizar grasas omega-3 para soporte cognitivo..." className="w-full px-6 py-5 bg-background border border-border rounded-2xl text-sm font-medium h-40 focus:outline-none focus:ring-4 focus:ring-primary/5 focus:border-primary transition-all" />
+              {/* Portion Table */}
+              <div className="space-y-6">
+                <div className="flex items-center justify-between px-2">
+                   <h4 className="text-sm font-black text-text-main uppercase tracking-[0.2em]">Distribución de Porciones</h4>
+                   <span className="text-[10px] font-bold text-text-muted opacity-60">Actualizado: 04/05/26</span>
                 </div>
-
-                <div className="space-y-4">
-                   <div className="flex items-center gap-2"><Ban className="w-5 h-5 text-rose-500" /><h4 className="text-sm font-black text-text-main uppercase tracking-tight">Alimentos Prohibidos</h4></div>
-                   <input type="text" value={planForm.forbidden} onChange={e => setPlanForm({...planForm, forbidden: e.target.value})} placeholder="Ej: Refrescos, Harinas Blancas, Embutidos (separados por coma)" className="w-full px-6 py-5 bg-background border border-border rounded-2xl text-sm font-bold" />
-                   <p className="text-[10px] text-text-muted pl-4">Estos se marcarán globalmente en tu base de datos y alertas.</p>
+                <div className="overflow-x-auto -mx-8 px-8">
+                  <table className="w-full min-w-[600px] text-center border-collapse">
+                    <thead>
+                      <tr className="border-b border-border/50">
+                        <th className="py-4 px-4 text-left text-[10px] font-black text-text-muted uppercase tracking-widest">Grupo</th>
+                        <th className="py-4 px-4 text-[10px] font-black text-text-main uppercase bg-surface-alt rounded-t-xl">Total</th>
+                        <th className="py-4 px-4 text-[10px] font-black text-text-muted uppercase">Desayuno</th>
+                        <th className="py-4 px-4 text-[10px] font-black text-text-muted uppercase">Colación 1</th>
+                        <th className="py-4 px-4 text-[10px] font-black text-text-muted uppercase">Comida</th>
+                        <th className="py-4 px-4 text-[10px] font-black text-text-muted uppercase">Colación 2</th>
+                        <th className="py-4 px-4 text-[10px] font-black text-text-muted uppercase">Cena</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(plan?.portions || INITIAL_PORTIONS).map((p, i) => (
+                        <tr key={i} className="border-b border-border/30 hover:bg-surface-alt/50 transition-colors">
+                          <td className="py-5 px-4 text-left text-sm font-bold text-text-main flex items-center gap-2">
+                            <span className="opacity-40">{p.group === 'Verduras' ? '🥦' : p.group === 'Frutas' ? '🍎' : p.group === 'Cereales' ? '🌾' : p.group === 'A. Origen Animal' ? '🍗' : p.group === 'Aceites' ? '🥑' : '🥜'}</span>
+                            {p.group}
+                          </td>
+                          <td className="py-5 px-4 text-sm font-black text-primary bg-surface-alt">{p.total}</td>
+                          <td className={cn("py-5 px-4 text-sm font-bold", p.desayuno > 0 ? "text-text-main" : "text-text-muted opacity-20")}>{p.desayuno || '-'}</td>
+                          <td className={cn("py-5 px-4 text-sm font-bold", p.colacion1 > 0 ? "text-text-main" : "text-text-muted opacity-20")}>{p.colacion1 || '-'}</td>
+                          <td className={cn("py-5 px-4 text-sm font-bold", p.comida > 0 ? "text-text-main" : "text-text-muted opacity-20")}>{p.comida || '-'}</td>
+                          <td className={cn("py-5 px-4 text-sm font-bold", p.colacion2 > 0 ? "text-text-main" : "text-text-muted opacity-20")}>{p.colacion2 || '-'}</td>
+                          <td className={cn("py-5 px-4 text-sm font-bold", p.cena > 0 ? "text-text-main" : "text-text-muted opacity-20")}>{p.cena || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
 
-              <div className="flex justify-end pt-4">
-                 <button onClick={handleUpdatePlan} disabled={isSaving} className="px-10 py-4 bg-primary text-white rounded-2xl font-extrabold text-xs uppercase tracking-[0.2em] shadow-xl shadow-primary/20 hover:bg-primary-hover transition-all flex items-center gap-3">
-                   {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-5 h-5" />} Actualizar Plan Maestro
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-8 border-t border-border">
+                {/* Recommendations */}
+                <div className="space-y-6">
+                  <h4 className="text-sm font-black text-text-main uppercase tracking-[0.2em] flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-primary" />
+                    Recomendaciones
+                  </h4>
+                  <div className="space-y-3">
+                    {[
+                      "Consumir alimentos con bajo índice glucémico.",
+                      "Evitar el consumo de bebidas azucaradas y consumir abundante agua natural.",
+                      "Realizar actividad física frecuentemente.",
+                      "Evitar ayuno prolongado, establecer horarios de comida.",
+                      "No olvides tomar tus medicamentos indicados por tu médico."
+                    ].map((rec, i) => (
+                      <div key={i} className="flex gap-3 items-start">
+                        <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-black text-primary shrink-0 mt-0.5">{i+1}</div>
+                        <p className="text-xs font-medium text-text-main leading-relaxed">{rec}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Hypoglycemia Box */}
+                <div className="bg-rose-50/50 border border-rose-100 p-6 rounded-3xl space-y-4">
+                  <h4 className="text-xs font-black text-rose-900 uppercase tracking-widest flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-500" />
+                    Regla de los 15 (Hipoglucemia)
+                  </h4>
+                  <p className="text-[10px] font-bold text-rose-700 leading-relaxed uppercase opacity-70">
+                    SÍNTOMAS: Temblores, sudoración, hambre, mareo, confusión, palidez, desmayos.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-white p-3 rounded-2xl border border-rose-100 flex flex-col gap-1 shadow-sm">
+                      <span className="text-[10px] font-black text-rose-500">PASO 1</span>
+                      <p className="text-[10px] font-bold text-text-main leading-tight">Consumir 15g de carbohidratos simples.</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-2xl border border-rose-100 flex flex-col gap-1 shadow-sm">
+                      <span className="text-[10px] font-black text-rose-500">PASO 2</span>
+                      <p className="text-[10px] font-bold text-text-main leading-tight">Esperar 15 min y medir glucosa.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-4">
+                <h4 className="text-sm font-black text-text-main uppercase tracking-[0.2em] pl-1">Notas Adicionales</h4>
+                <textarea 
+                  value={planForm.indications} 
+                  onChange={e => setPlanForm({...planForm, indications: e.target.value})} 
+                  placeholder="Añade notas complementarias de tu nutrióloga aquí..." 
+                  className="w-full px-6 py-5 bg-background border border-border rounded-2xl text-sm font-medium h-32 focus:outline-none focus:ring-4 focus:ring-primary/5 focus:border-primary transition-all" 
+                />
+              </div>
+
+              <div className="flex justify-center pt-4">
+                 <button onClick={handleUpdatePlan} disabled={isSaving} className="w-full md:w-auto px-12 py-4 bg-primary text-white rounded-2xl font-extrabold text-xs uppercase tracking-[0.2em] shadow-xl shadow-primary/20 hover:bg-primary-hover transition-all flex items-center justify-center gap-3">
+                   {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-5 h-5" />} Guardar Mi Plan Maestro
                  </button>
               </div>
             </div>
 
-            {/* Nutrition Tip */}
-            <div className="bg-amber-50 border border-amber-100 p-6 rounded-3xl flex gap-4">
-               <AlertCircle className="w-6 h-6 text-amber-600 shrink-0" />
-               <p className="text-xs text-amber-900 font-medium leading-relaxed">
-                 <span className="font-black uppercase tracking-widest block mb-1">Nota Neuro-Cognitiva:</span>
-                 Un intestino inflamado produce neuro-inflamación. Sigue las restricciones del plan para mantener tu claridad mental y estabilidad neuro-afectiva.
-               </p>
+            <div className="bg-surface p-6 rounded-[32px] border border-border shadow-sm flex items-center gap-4">
+              <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 border border-indigo-100 shrink-0"><Brain className="w-6 h-6" /></div>
+              <p className="text-xs text-indigo-950 font-medium leading-relaxed">
+                Este plan está diseñado para optimizar tu salud metabólica y claridad cognitiva. Los alimentos de <span className="font-extrabold px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">Bajo IG</span> son tu mejor aliado para evitar picos de insulina.
+              </p>
             </div>
           </motion.div>
         )}
