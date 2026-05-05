@@ -1195,14 +1195,14 @@ export default function NutritionModule({ user }: { user: User }) {
     <button
       onClick={() => setActiveTab(id)}
       className={cn(
-        "flex items-center gap-2 px-6 py-3 rounded-2xl text-xs font-bold uppercase tracking-widest transition-all",
+        "flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl text-[10px] sm:text-xs font-bold uppercase tracking-widest transition-all w-full",
         activeTab === id 
           ? "bg-primary text-white shadow-lg shadow-primary/20" 
           : "text-text-muted hover:bg-surface hover:text-text-main"
       )}
     >
-      <Icon className="w-4 h-4" />
-      {label}
+      <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+      <span className="truncate">{label}</span>
     </button>
   );
 
@@ -1210,10 +1210,10 @@ export default function NutritionModule({ user }: { user: User }) {
     <div className="space-y-6 md:space-y-8 max-w-6xl mx-auto pb-24 px-2 sm:px-0">
       {/* Navigation Tabs */}
       <div className="w-full flex justify-center mb-6">
-        <div className="flex items-center gap-1.5 bg-surface p-1.5 rounded-[2rem] border border-border shadow-sm overflow-x-auto no-scrollbar scroll-smooth">
+        <div className="grid grid-cols-3 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2 bg-surface p-1.5 sm:p-2 rounded-[1.5rem] sm:rounded-[2rem] border border-border shadow-sm w-full max-w-[600px]">
           <TabButton id="mercado" label="Mercado" icon={ListChecks} />
           <TabButton id="cocina" label="Cocina" icon={Sparkles} />
-          <TabButton id="refrigerador" label="Refrigerador" icon={Package} />
+          <TabButton id="refrigerador" label="Refri" icon={Package} />
           <TabButton id="alimentos" label="Alimentos" icon={Utensils} />
           <TabButton id="platillos" label="Platillos" icon={BookOpen} />
           <TabButton id="plan" label="Mi Plan" icon={ClipboardList} />
