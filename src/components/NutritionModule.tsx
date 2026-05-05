@@ -67,6 +67,7 @@ interface ShoppingItem {
   foodId: string;
   name: string;
   category: string;
+  quantity?: string;
   status: 'permitido' | 'moderado' | 'prohibido' | 'libre';
   dishName?: string;
   bought: boolean;
@@ -77,6 +78,7 @@ interface FridgeItem {
   foodId: string;
   name: string;
   category: string;
+  quantity?: string;
   dishName?: string;
   confirmed?: boolean;
 }
@@ -113,6 +115,8 @@ export default function NutritionModule({ user }: { user: User }) {
   const [selectedCategory, setSelectedCategory] = useState(FOOD_CATEGORIES[0]);
   const [selectedStatus, setSelectedStatus] = useState<string | 'all'>('all');
   const [marketSearch, setMarketSearch] = useState('');
+  const [marketQuantities, setMarketQuantities] = useState<Record<string, string>>({});
+  const [marketUnits, setMarketUnits] = useState<Record<string, string>>({});
 
   useEffect(() => {
     fetchData();
@@ -370,11 +374,14 @@ export default function NutritionModule({ user }: { user: User }) {
   };
 
   // Shopping List Actions
-  const addToShoppingList = async (food: FoodItem) => {
+  const addToShoppingList = async (food: FoodItem, quantityOverride?: string) => {
     console.log("addToShoppingList called for:", food);
     if (shoppingList.some(item => item.foodId === food.id)) return;
     
     // Simplificación: omitir prompt para evitar problemas en iFrame
+    let rawQty = quantityOverride || marketQuantities[food.id] || "";
+    let unit = marketUnits[food.id] || "kg";
+    let quantity = rawQty ? `${rawQty} ${unit}`.trim() : "";
     let finalName = food.name;
 
     try {
@@ -382,6 +389,7 @@ export default function NutritionModule({ user }: { user: User }) {
         foodId: food.id,
         name: finalName,
         category: food.category,
+        quantity: quantity,
         dishName: 'Básicos',
         status: food.status,
         bought: false,
@@ -390,6 +398,12 @@ export default function NutritionModule({ user }: { user: User }) {
       const docRef = await addDoc(collection(db, 'users', user.uid, 'shoppingList'), newItem);
       console.log("Added to firestore, docRef:", docRef.id);
       setShoppingList([...shoppingList, { id: docRef.id, ...newItem } as ShoppingItem]);
+      // Clear quantity for this item after adding
+      setMarketQuantities(prev => {
+        const next = { ...prev };
+        delete next[food.id];
+        return next;
+      });
     } catch (err) {
       console.error("Error adding to shopping list:", err);
       handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}/shoppingList`);
@@ -399,7 +413,18 @@ export default function NutritionModule({ user }: { user: User }) {
 
   const handleManualAddToMarket = async (itemName: string) => {
     if (!itemName || itemName.trim() === '') return;
-    const cleanName = itemName.trim();
+    
+    // Simple regex to parse quantity if it starts with number + unit (e.g. "2kg manz")
+    let cleanName = itemName.trim();
+    let detectedQty = "";
+    
+    const qtyRegex = /^([\d\.]+\s*(?:kg|kilos?|l|litros?|g|gramos?|u|unidades?))\s+(?:de\s+)?(.*)/i;
+    const match = cleanName.match(qtyRegex);
+    if (match) {
+        detectedQty = match[1];
+        cleanName = match[2];
+    }
+
     setIsSaving(true);
     try {
         const existingFood = foods.find(f => f.name.toLowerCase() === cleanName.toLowerCase());
@@ -422,6 +447,7 @@ export default function NutritionModule({ user }: { user: User }) {
           foodId: foodId!,
           name: cleanName,
           category: 'Otros',
+          quantity: detectedQty,
           status: 'permitido',
           bought: false,
           createdAt: serverTimestamp()
@@ -474,6 +500,7 @@ export default function NutritionModule({ user }: { user: User }) {
                 foodId: item.foodId,
                 name: item.name,
                 category: item.category,
+                quantity: item.quantity || "",
                 dishName: itemDish,
                 confirmed: false,
                 addedAt: serverTimestamp()
@@ -525,6 +552,7 @@ export default function NutritionModule({ user }: { user: User }) {
             foodId: item.foodId,
             name: item.name,
             category: item.category,
+            quantity: item.quantity || "",
             dishName: itemDish,
             confirmed: false,
             addedAt: serverTimestamp()
@@ -603,6 +631,7 @@ export default function NutritionModule({ user }: { user: User }) {
             foodId: item.foodId,
             name: item.name,
             category: item.category,
+            quantity: item.quantity || "",
             dishName: item.dishName || 'Básicos',
             confirmed: false,
             addedAt: serverTimestamp()
@@ -1178,26 +1207,28 @@ export default function NutritionModule({ user }: { user: User }) {
   );
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto pb-24">
+    <div className="space-y-6 md:space-y-8 max-w-6xl mx-auto pb-24 px-2 sm:px-0">
       {/* Navigation Tabs */}
-      <div className="flex flex-wrap gap-2 bg-surface p-2 rounded-3xl border border-border shadow-sm w-fit mx-auto">
-        <TabButton id="mercado" label="Mercado" icon={ListChecks} />
-        <TabButton id="cocina" label="Cocina" icon={Sparkles} />
-        <TabButton id="refrigerador" label="Refrigerador" icon={Package} />
-        <TabButton id="alimentos" label="Alimentos" icon={Utensils} />
-        <TabButton id="platillos" label="Platillos" icon={BookOpen} />
-        <TabButton id="plan" label="Mi Plan" icon={ClipboardList} />
+      <div className="w-full flex justify-center mb-6">
+        <div className="flex items-center gap-1.5 bg-surface p-1.5 rounded-[2rem] border border-border shadow-sm overflow-x-auto no-scrollbar scroll-smooth">
+          <TabButton id="mercado" label="Mercado" icon={ListChecks} />
+          <TabButton id="cocina" label="Cocina" icon={Sparkles} />
+          <TabButton id="refrigerador" label="Refrigerador" icon={Package} />
+          <TabButton id="alimentos" label="Alimentos" icon={Utensils} />
+          <TabButton id="platillos" label="Platillos" icon={BookOpen} />
+          <TabButton id="plan" label="Mi Plan" icon={ClipboardList} />
+        </div>
       </div>
 
       <AnimatePresence mode="wait">
         {activeTab === 'mercado' && (
-          <motion.div key="mercado" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <motion.div key="mercado" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="flex flex-col lg:flex-row items-stretch lg:items-start gap-6 lg:gap-8">
              {/* Catálogo de Alimentos (Izquierda) */}
-             <div className="lg:col-span-1 bg-surface p-6 rounded-[32px] border border-border shadow-sm flex flex-col h-[700px]">
-                <div className="mb-6 space-y-4">
+             <div className="w-full lg:w-[350px] shrink-0 bg-surface p-5 sm:p-6 rounded-[32px] border border-border shadow-sm flex flex-col h-[600px] lg:h-[750px]">
+                <div className="mb-6 space-y-4 text-center sm:text-left">
                   <div>
                     <h3 className="text-sm font-black text-primary uppercase tracking-widest mb-1">Catálogo</h3>
-                    <p className="text-[10px] text-text-muted leading-tight">Busca y toca para añadir a tu lista de compras</p>
+                    <p className="text-[10px] text-text-muted leading-tight">Selecciona alimentos para tu lista</p>
                   </div>
                   
                   {/* Buscador */}
@@ -1246,27 +1277,64 @@ export default function NutritionModule({ user }: { user: User }) {
                             const inFridge = fridge.some(f => f.foodId === food.id);
                             const inShopping = shoppingList.some(s => s.foodId === food.id);
                             return (
-                              <button 
+                              <div 
                                 key={food.id}
-                                onClick={() => addToShoppingList(food)}
                                 className={cn(
-                                  "w-full flex items-center justify-between p-3 bg-background border border-border rounded-2xl hover:border-primary/40 hover:bg-primary/5 transition-all text-left group",
+                                  "w-full flex items-center justify-between p-3 bg-background border border-border rounded-2xl hover:border-primary/40 hover:bg-primary/5 transition-all text-left group gap-2",
                                   inFridge && "opacity-40",
                                   inShopping && "border-primary/30 bg-primary/5"
                                 )}
                               >
-                                <div className="flex flex-col">
-                                  <span className={cn("text-xs font-bold text-text-main group-hover:text-primary transition-colors", inShopping && "text-primary")}>
+                                <div className="flex flex-col flex-1 min-w-0" onClick={() => addToShoppingList(food)}>
+                                  <span className={cn("text-xs font-bold text-text-main group-hover:text-primary transition-colors truncate", inShopping && "text-primary")}>
                                     {food.name}
                                   </span>
                                   {inFridge && <span className="text-[8px] font-black text-emerald-500 uppercase">En casa 🏡</span>}
                                 </div>
-                                {inShopping ? (
-                                  <CheckCircle2 className="w-4 h-4 text-primary" />
-                                ) : (
-                                  <Plus className="w-3.5 h-3.5 text-text-muted group-hover:text-primary opacity-0 group-hover:opacity-100 transition-all" />
+                                
+                                {!inShopping && (
+                                  <div className="flex flex-col gap-1 shrink-0">
+                                    <div className="flex items-center gap-1">
+                                      <input 
+                                        type="number"
+                                        placeholder="Ct."
+                                        value={marketQuantities[food.id] || ''}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onChange={(e) => {
+                                          e.stopPropagation();
+                                          setMarketQuantities(prev => ({ ...prev, [food.id]: e.target.value }));
+                                        }}
+                                        className="w-10 px-1 py-1 bg-white border border-border rounded-lg text-[10px] font-bold focus:ring-1 focus:ring-primary outline-none"
+                                      />
+                                      <select
+                                        value={marketUnits[food.id] || 'kg'}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onChange={(e) => {
+                                          e.stopPropagation();
+                                          setMarketUnits(prev => ({ ...prev, [food.id]: e.target.value }));
+                                        }}
+                                        className="bg-white border border-border rounded-lg text-[9px] font-bold py-1 px-0.5 outline-none focus:ring-1 focus:ring-primary"
+                                      >
+                                        <option value="kg">kg</option>
+                                        <option value="L">L</option>
+                                        <option value="g">g</option>
+                                        <option value="ml">ml</option>
+                                        <option value="pza">pza</option>
+                                      </select>
+                                      <button 
+                                        onClick={(e) => { e.stopPropagation(); addToShoppingList(food); }}
+                                        className="p-1.5 bg-primary text-white rounded-lg hover:bg-primary-dark transition-all"
+                                      >
+                                        <Plus className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  </div>
                                 )}
-                              </button>
+                                
+                                {inShopping && (
+                                  <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                                )}
+                              </div>
                             );
                           })}
                         </div>
@@ -1280,10 +1348,10 @@ export default function NutritionModule({ user }: { user: User }) {
              <div 
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleDropShopping}
-              className="lg:col-span-2 bg-surface p-8 rounded-[40px] border border-border shadow-sm flex flex-col h-[700px]"
+              className="flex-1 bg-surface p-6 sm:p-10 rounded-[40px] border border-border shadow-sm flex flex-col min-h-[500px] lg:h-[750px] relative w-full overflow-hidden"
              >
-                <div className="flex justify-between items-end mb-8">
-                  <div className="flex flex-col">
+                <div className="flex flex-col sm:flex-row justify-between items-center sm:items-end gap-6 mb-8 text-center sm:text-left">
+                  <div className="flex flex-col items-center sm:items-start">
                     <h3 className="text-xl font-black text-text-main tracking-tight">Lista del Mercado</h3>
                     <p className="text-xs font-bold text-text-muted uppercase tracking-widest">{shoppingList.length} productos en el carrito</p>
                   </div>
@@ -1379,7 +1447,7 @@ export default function NutritionModule({ user }: { user: User }) {
                                         {item.bought && <CheckCircle2 className="w-4 h-4" />}
                                       </div>
                                       <span className={cn("text-sm font-bold leading-tight", item.bought && "line-through opacity-80")}>
-                                        {item.name}
+                                        {item.name} {item.quantity && <span className="text-primary font-black ml-1 text-xs">({item.quantity})</span>}
                                       </span>
                                    </div>
                                    <button 
@@ -1410,8 +1478,8 @@ export default function NutritionModule({ user }: { user: User }) {
         {activeTab === 'cocina' && (
           <motion.div key="cocina" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
             <div className="bg-surface p-8 rounded-[40px] border border-border shadow-sm">
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-border pb-8 mb-8">
-                <div className="flex items-center gap-4">
+              <div className="flex flex-col md:flex-row justify-between items-center gap-6 border-b border-border pb-8 mb-8 text-center md:text-left">
+                <div className="flex flex-col md:flex-row items-center gap-4">
                   <div className="w-16 h-16 bg-primary/10 rounded-[20px] flex items-center justify-center text-primary border border-primary/20">
                     <Sparkles className="w-8 h-8" />
                   </div>
@@ -1518,8 +1586,8 @@ export default function NutritionModule({ user }: { user: User }) {
         {activeTab === 'refrigerador' && (
           <motion.div key="refrigerador" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-8">
              <div className="bg-surface p-8 rounded-[40px] border border-border shadow-sm">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-border pb-8 mb-8">
-                  <div className="flex items-center gap-4">
+                <div className="flex flex-col md:flex-row justify-between items-center gap-6 border-b border-border pb-8 mb-8 text-center md:text-left">
+                  <div className="flex flex-col md:flex-row items-center gap-4">
                     <div className="w-16 h-16 bg-primary/10 rounded-[20px] flex items-center justify-center text-primary border border-primary/20">
                       <Package className="w-8 h-8" />
                     </div>
@@ -1552,12 +1620,12 @@ export default function NutritionModule({ user }: { user: User }) {
 
                       return (
                         <div key={dishName} className="bg-white p-8 rounded-[32px] border border-border shadow-sm">
-                          <div className="flex justify-between items-start mb-6">
-                            <div>
+                          <div className="flex flex-col sm:flex-row justify-between items-center sm:items-start gap-4 mb-6 text-center sm:text-left">
+                            <div className="flex flex-col items-center sm:items-start">
                               <h4 className="text-lg font-black text-text-main tracking-tight capitalize">{dishName}</h4>
                               <p className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">{items.length} Ingredientes</p>
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex flex-wrap justify-center sm:justify-end gap-2 text-center">
                               <button 
                                 onClick={async () => {
                                   try {
@@ -1630,7 +1698,9 @@ export default function NutritionModule({ user }: { user: User }) {
                                   <CheckCircle2 className="w-3 h-3" />
                                 </div>
                                 <div className="flex flex-col">
-                                  <span className={cn("text-sm font-bold", item.confirmed ? "text-primary" : "text-text-main")}>{item.name}</span>
+                                  <span className={cn("text-sm font-bold", item.confirmed ? "text-primary" : "text-text-main")}>
+                                    {item.name} {item.quantity && <span className="text-primary font-black ml-1 text-[10px]">({item.quantity})</span>}
+                                  </span>
                                   <span className="text-[9px] font-black text-text-muted uppercase tracking-tighter">{item.category}</span>
                                 </div>
                               </button>
@@ -1648,7 +1718,7 @@ export default function NutritionModule({ user }: { user: User }) {
         {activeTab === 'alimentos' && (
           <motion.div key="alimentos" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
              {/* Selector de Categorías - Estilo Handbook */}
-             <div className="grid grid-cols-4 sm:grid-cols-4 lg:grid-cols-8 gap-2">
+             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 justify-center">
                 {FOOD_CATEGORIES.map(cat => (
                   <button
                     key={cat}
@@ -1714,8 +1784,8 @@ export default function NutritionModule({ user }: { user: User }) {
 
                 {/* Formulario Compacto */}
                 <form onSubmit={handleAddFood} className="flex flex-col sm:flex-row gap-3 p-3 bg-background border border-border rounded-2xl mb-8">
-                  <div className="flex-1 flex flex-col sm:flex-row items-center gap-3 px-3">
-                    <div className="w-full flex items-center gap-3">
+                  <div className="w-full lg:flex-1 flex flex-col sm:flex-row items-center gap-3 px-3">
+                    <div className="w-full flex items-center justify-center sm:justify-start gap-3">
                       <Search className="w-4 h-4 text-text-muted" />
                       <input 
                         type="text" 

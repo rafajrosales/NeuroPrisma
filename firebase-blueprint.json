@@ -225,6 +225,7 @@
         "foodId": { "type": "string" },
         "name": { "type": "string" },
         "category": { "type": "string" },
+        "quantity": { "type": "string" },
         "status": { "type": "string", "enum": ["permitido", "moderado", "prohibido"] },
         "bought": { "type": "boolean" },
         "createdAt": { "type": "string", "format": "date-time" }
