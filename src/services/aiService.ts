@@ -7,12 +7,16 @@ export async function getNeuropsychologistInterpretation(logs: any[]) {
   
   const prompt = `Actúa como un experto neuropsicólogo especializado en regulación emocional. Basado en estos registros emocionales del usuario: ${JSON.stringify(logs)}, proporciona un análisis breve, clínico, empático y constructivo. Incluye: (1) Interpretación de tendencias, (2) Sugerencias prácticas (trabajo cognitivo/conductual), (3) Una pregunta reflexiva. Usa un tono profesional pero cercano, evitando tecnicismos excesivos.`;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.0-flash",
-    contents: prompt,
-  });
-
-  return response.text || "No se pudo generar la interpretación.";
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: prompt,
+    });
+    return response.text || "No se pudo generar la interpretación.";
+  } catch (err) {
+    console.error("Error calling Gemini API:", err);
+    return "Error de conexión con la IA. Verifica tu API Key.";
+  }
 }
 
 export async function getAIDiaryDraft(logs: any[]) {
@@ -20,12 +24,16 @@ export async function getAIDiaryDraft(logs: any[]) {
   
   const prompt = `Actúa como un diario introspectivo inteligente. Basado en los registros emocionales recientes del usuario: ${JSON.stringify(logs)}, escribe un primer borrador de una entrada de diario en primera persona. El tono debe ser reflexivo, honesto y terapéutico. Ayuda al usuario a poner en palabras lo que pudo haber sentido, dejando espacio para que él lo complete o corrija. No uses títulos ni formatos de carta, solo el cuerpo del texto del diario. Máximo 150 palabras.`;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.0-flash",
-    contents: prompt,
-  });
-
-  return response.text || "Error al redactar el borrador.";
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: prompt,
+    });
+    return response.text || "Error al redactar el borrador.";
+  } catch (err) {
+    console.error("Error calling Gemini API:", err);
+    return "Error de conexión con la IA. Verifica tu API Key.";
+  }
 }
 
 export async function getNutritionalSuggestions(allowedFoods: string[], forbiddenFoods: string[], portionPlan: any, mealType: string, fridgeItems: string[], strategy: 'strict_fridge' | 'market_allowed' = 'market_allowed') {
@@ -74,12 +82,12 @@ export async function getNutritionalSuggestions(allowedFoods: string[], forbidde
   
   Responde SOLO con el JSON, sin texto adicional.`;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.0-flash",
-    contents: prompt,
-  });
-
   try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: prompt,
+    });
+
     const text = response.text || "[]";
     const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
     const parsed = JSON.parse(cleanText);
@@ -115,12 +123,12 @@ export async function getWeeklyGrocerySuggestions(allowedFoods: string[], forbid
   
   Responde SOLO con el JSON, sin texto adicional ni backticks de markdown.`;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.0-flash",
-    contents: prompt,
-  });
-
   try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: prompt,
+    });
+
     const text = response.text || "[]";
     const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
     const parsed = JSON.parse(cleanText);
