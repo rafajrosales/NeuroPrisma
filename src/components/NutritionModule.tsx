@@ -31,6 +31,7 @@ interface NutritionalDish {
   ingredients: { name: string; quantity: string }[];
   instructions?: string;
   status?: 'template' | 'preparando';
+  fridgeItemIds?: string[];
   createdAt?: any;
 }
 
@@ -98,6 +99,10 @@ export default function NutritionModule({ user }: { user: User }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingMarket, setIsGeneratingMarket] = useState(false);
   const [profile, setProfile] = useState<any>(null);
+
+  // Verification state for fridge to kitchen move
+  const [verifyingKitchen, setVerifyingKitchen] = useState<{ dishName: string; items: FridgeItem[]; dishId?: string } | null>(null);
+  const [itemsToKeepInFridge, setItemsToKeepInFridge] = useState<Set<string>>(new Set());
   
   const INITIAL_PORTIONS: PortionPlan[] = [
     { group: 'Verduras', total: 5, desayuno: 2, colacion1: 0, comida: 2, colacion2: 0, cena: 1 },
@@ -134,27 +139,38 @@ export default function NutritionModule({ user }: { user: User }) {
       
       const dishData = {
         name: dishName,
-        ingredients: items.map(i => ({ name: i.name, quantity: '1 u.' })),
+        ingredients: items.map(i => ({ name: i.name, quantity: i.quantity || '1 u.' })),
         instructions: instructions,
         status: 'preparando',
+        fridgeItemIds: items.map(i => i.id),
         createdAt: serverTimestamp(),
         userId: user.uid
       };
 
       batch.set(dishRef, dishData);
 
-      const movedIds = new Set(items.map(i => i.id));
+      // NO ELIMINAMOS NADA DEL REFRI TODAVÍA. 
+      // Simplemente marcamos que están confirmados si no lo estaban
       items.forEach(i => {
-        batch.delete(doc(db, 'users', user.uid, 'fridge', i.id));
+        if (!i.confirmed) {
+          batch.update(doc(db, 'users', user.uid, 'fridge', i.id), { confirmed: true });
+        }
       });
 
       await batch.commit();
       
-      setDishes(prev => [...prev, { id: dishRef.id, ...dishData, ingredients: items.map(i => ({ name: i.name, quantity: '' })) } as NutritionalDish]);
-      setFridge(prev => prev.filter(f => !movedIds.has(f.id)));
+      setDishes(prev => [...prev, { id: dishRef.id, ...dishData } as NutritionalDish]);
+      setFridge(prev => prev.map(f => {
+        if (items.some(i => i.id === f.id)) {
+          return { ...f, confirmed: true };
+        }
+        return f;
+      }));
       
-      alert(`👨‍🍳 ¡Ingredientes listos! "${dishName}" se ha movido automáticamente a La Cocina.`);
+      alert(`👨‍🍳 ¡Ingredientes listos! "${dishName}" se ha movido a La Cocina.`);
       setActiveTab('cocina');
+      setVerifyingKitchen(null);
+      setItemsToKeepInFridge(new Set());
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}/fridge/autoSendToKitchen`);
     } finally {
@@ -170,7 +186,7 @@ export default function NutritionModule({ user }: { user: User }) {
       const updatedFridge = fridge.map(f => f.id === item.id ? { ...f, confirmed: newStatus } : f);
       setFridge(updatedFridge);
 
-      // Si es un platillo y se acaba de confirmar el ultimo ingrediente
+      // Si es un platillo y se acaba de confirmar el ultimo ingrediente, mandamos a cocina DIRECTO
       if (item.dishName && item.dishName !== 'Básicos' && newStatus) {
         const dishItems = updatedFridge.filter(f => f.dishName === item.dishName);
         if (dishItems.every(i => i.confirmed)) {
@@ -1144,31 +1160,31 @@ export default function NutritionModule({ user }: { user: User }) {
           if (fItem) matchedFridgeItems.push(fItem);
         }
 
-        const batch = writeBatch(db);
-        const dishRef = doc(collection(db, 'users', user.uid, 'nutritionalDishes'));
-        const dishData = {
-          userId: user.uid,
-          name: dish.name,
-          ingredients: matchedFridgeItems.length > 0 
-            ? matchedFridgeItems.map(i => ({ name: i.name, quantity: '1 u.' }))
-            : dishIngredients.map((i: any) => ({ name: typeof i === 'string' ? i : i.name, quantity: typeof i === 'string' ? '' : i.quantity })),
-          instructions: dish.instructions || '',
-          status: 'preparando',
-          createdAt: serverTimestamp()
-        };
-
-        batch.set(dishRef, dishData);
-
-        for (const item of matchedFridgeItems) {
-          batch.delete(doc(db, 'users', user.uid, 'fridge', item.id));
+        if (matchedFridgeItems.length > 0) {
+          // Si encontramos ingredientes en el refri, mandamos directo a cocina
+          await sendDishToKitchen(dish.name, matchedFridgeItems);
+          setSuggestedDishes(prev => prev.filter(d => d.name !== dish.name));
+        } else {
+          // Si no hay ingredientes que coincidan (raro si es isFromFridge), lo mandamos directo
+          const batch = writeBatch(db);
+          const dishRef = doc(collection(db, 'users', user.uid, 'nutritionalDishes'));
+          const dishData = {
+            userId: user.uid,
+            name: dish.name,
+            ingredients: dishIngredients.map((i: any) => ({ 
+              name: typeof i === 'string' ? i : i.name, 
+              quantity: typeof i === 'string' ? '' : i.quantity 
+            })),
+            instructions: dish.instructions || '',
+            status: 'preparando',
+            createdAt: serverTimestamp()
+          };
+          batch.set(dishRef, dishData);
+          await batch.commit();
+          setDishes(prev => [...prev, { id: dishRef.id, ...dishData } as NutritionalDish]);
+          setSuggestedDishes(prev => prev.filter(d => d.name !== dish.name));
+          setActiveTab('cocina');
         }
-
-        await batch.commit();
-
-        setDishes(prev => [...prev, { id: dishRef.id, ...dishData } as NutritionalDish]);
-        setFridge(prev => prev.filter(f => !matchedFridgeItems.some(mi => mi.id === f.id)));
-        setSuggestedDishes(prev => prev.filter(d => d.name !== dish.name));
-        setActiveTab('cocina');
       } else {
         const docRef = await addDoc(collection(db, 'users', user.uid, 'nutritionalDishes'), {
           userId: user.uid,
@@ -1561,16 +1577,17 @@ export default function NutritionModule({ user }: { user: User }) {
                       )}
                     </div>
                     <button
-                      onClick={async () => {
-                        try {
-                          setIsSaving(true);
-                          await deleteDoc(doc(db, 'users', user.uid, 'nutritionalDishes', dish.id));
-                          setDishes(prev => prev.filter(d => d.id !== dish.id));
-                          setActiveTab('refrigerador');
-                        } catch (e) {
-                          handleFirestoreError(e, OperationType.DELETE, `users/${user.uid}/nutritionalDishes/${dish.id}`);
-                        } finally {
-                          setIsSaving(false);
+                      onClick={() => {
+                        const relatedFridgeItems = fridge.filter(f => dish.fridgeItemIds?.includes(f.id));
+                        if (relatedFridgeItems.length > 0) {
+                          setVerifyingKitchen({ 
+                            dishName: dish.name, 
+                            items: relatedFridgeItems,
+                            dishId: dish.id // New field in state to identify the dish
+                          } as any);
+                        } else {
+                          // Si no tiene ingredientes vinculados (raro), finalizamos normal
+                          deleteItem('nutritionalDishes', dish.id);
                         }
                       }}
                       className="w-full py-4 bg-primary text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-primary-dark transition-all flex items-center justify-center gap-2"
@@ -1649,7 +1666,7 @@ export default function NutritionModule({ user }: { user: User }) {
                                     await batch.commit();
                                     
                                     if (dishName !== 'Básicos') {
-                                      await sendDishToKitchen(dishName, items);
+                                      setVerifyingKitchen({ dishName, items });
                                     } else {
                                       const itemIds = new Set(items.map(i => i.id));
                                       setFridge(prev => prev.map(f => itemIds.has(f.id) ? { ...f, confirmed: true } : f));
@@ -1731,6 +1748,126 @@ export default function NutritionModule({ user }: { user: User }) {
                 </div>
              </div>
           </motion.div>
+        )}
+
+        {/* Modal de Verificación de Inventario antes de Cocina */}
+        {verifyingKitchen && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-surface w-full max-w-lg rounded-[40px] border border-border shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="p-8 border-b border-border bg-gradient-to-br from-primary/5 to-transparent">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary border border-primary/20">
+                    <Utensils className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-text-main tracking-tight">Inventario de Cocina</h3>
+                    <p className="text-xs font-bold text-text-muted uppercase tracking-widest">¿Qué ingredientes se terminaron?</p>
+                  </div>
+                </div>
+                <p className="text-xs text-text-muted leading-relaxed">
+                  Confirma qué ingredientes vas a <b>agotar por completo</b> al cocinar {verifyingKitchen.dishName}. Lo que <b>no</b> selecciones se quedará en tu refrigerador.
+                </p>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 space-y-3">
+                {verifyingKitchen.items.map(item => {
+                  const isKeeping = itemsToKeepInFridge.has(item.id);
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        const newSet = new Set(itemsToKeepInFridge);
+                        if (newSet.has(item.id)) {
+                          newSet.delete(item.id);
+                        } else {
+                          newSet.add(item.id);
+                        }
+                        setItemsToKeepInFridge(newSet);
+                      }}
+                      className={cn(
+                        "w-full flex items-center justify-between p-4 rounded-3xl border transition-all text-left",
+                        isKeeping 
+                          ? "bg-white border-border opacity-70" 
+                          : "bg-primary/5 border-primary shadow-sm"
+                      )}
+                    >
+                      <div className="flex flex-col">
+                        <span className={cn("text-sm font-bold", !isKeeping ? "text-primary" : "text-text-main")}>
+                          {item.name}
+                        </span>
+                        <span className="text-[10px] font-black text-text-muted uppercase tracking-widest">
+                          {isKeeping ? "Aún queda en el refri" : "Se termina al cocinar"}
+                        </span>
+                      </div>
+                      <div className={cn(
+                        "w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all",
+                        !isKeeping ? "bg-primary border-primary text-white" : "border-border"
+                      )}>
+                        {!isKeeping && <CheckCircle2 className="w-4 h-4" />}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="p-8 border-t border-border grid grid-cols-2 gap-4">
+                <button 
+                  onClick={() => {
+                    setVerifyingKitchen(null);
+                    setItemsToKeepInFridge(new Set());
+                  }}
+                  className="py-4 rounded-2xl font-black text-xs uppercase tracking-widest text-text-muted hover:bg-surface transition-all border border-border"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={async () => {
+                    setIsSaving(true);
+                    try {
+                      const batch = writeBatch(db);
+                      const idsToRemove = verifyingKitchen.items.map(i => i.id).filter(id => !itemsToKeepInFridge.has(id));
+                      
+                      // Eliminar los ingredientes terminados
+                      idsToRemove.forEach(id => {
+                        batch.delete(doc(db, 'users', user.uid, 'fridge', id));
+                      });
+                      
+                      // Si hay un dishId, significa que estamos finalizando en cocina
+                      if (verifyingKitchen.dishId) {
+                        batch.delete(doc(db, 'users', user.uid, 'nutritionalDishes', verifyingKitchen.dishId));
+                        
+                        await batch.commit();
+                        
+                        setFridge(prev => prev.filter(f => !idsToRemove.includes(f.id)));
+                        setDishes(prev => prev.filter(d => d.id !== verifyingKitchen.dishId));
+                        alert("¡Buen provecho! El platillo ha sido finalizado y el inventario actualizado.");
+                      } else {
+                        // Flujo antiguo por si acaso
+                        await batch.commit();
+                        setFridge(prev => prev.filter(f => !idsToRemove.includes(f.id)));
+                      }
+                      
+                      setVerifyingKitchen(null);
+                      setItemsToKeepInFridge(new Set());
+                      setActiveTab('refrigerador');
+                    } catch (e) {
+                      handleFirestoreError(e, OperationType.WRITE, 'users/fridge/finalVerification');
+                    } finally {
+                      setIsSaving(false);
+                    }
+                  }}
+                  className="py-4 bg-primary text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all flex items-center justify-center gap-2"
+                  disabled={isSaving}
+                >
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <><CheckCircle2 className="w-4 h-4" /> Confirmar Consumo</>}
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
 
         {activeTab === 'alimentos' && (
