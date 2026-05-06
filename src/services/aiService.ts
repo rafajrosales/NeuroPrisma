@@ -51,13 +51,34 @@ export async function getAIDiaryDraft(logs: any[]) {
   }
 }
 
-export async function getNutritionalSuggestions(allowedFoods: string[], forbiddenFoods: string[], portionPlan: any, mealType: string, fridgeItems: string[], strategy: 'strict_fridge' | 'market_allowed' = 'market_allowed') {
+export async function getNutritionalSuggestions(
+  allowedFoods: string[], 
+  forbiddenFoods: string[], 
+  portionPlan: any, 
+  mealType: string, 
+  fridgeItems: string[], 
+  strategy: 'strict_fridge' | 'market_allowed' = 'market_allowed',
+  prepTime: 'rápido' | 'estándar' | 'elaborado' = 'estándar'
+) {
   const currentKey = getApiKey();
   if (!currentKey) {
-    return "Error C-001: No hay API Key configurada. Si estás en AI Studio, ve a 'Settings' (arriba a la derecha), busca 'Secrets' y añade una con nombre GEMINI_API_KEY.";
+    return "Error C-001: No hay API Key configurada. Si estás en AI Studio, ve a 'Settings' (arriba a la derecha), busca 'Secrets' and añade una con nombre GEMINI_API_KEY.";
   }
 
   const ai = new GoogleGenAI({ apiKey: currentKey });
+  
+  let timeInstructions = "";
+  if (prepTime === 'rápido') {
+    timeInstructions = `
+  - TIEMPO: EL USUARIO TIENE PRISA. Sugiere platillos EXTREMADAMENTE RÁPIDOS (máximo 5-10 min).
+  - CRÍTICO: NO deben requerir cocción (no usar estufa/horno si es posible, preferir preparaciones frías, ensaladas, wraps, batidos o cosas que solo requieran ensamblar).
+  - "No cocer cosas" es la prioridad.`;
+  } else if (prepTime === 'elaborado') {
+    timeInstructions = `
+  - TIEMPO: EL USUARIO TIENE TIEMPO. Sugiere platillos más elaborados y nutritivos que puedan requerir cocción lenta, horneado o técnicas más complejas.
+  - Se permite y fomenta el uso de técnicas que tomen más de 20-30 min si eso mejora el sabor y valor nutricional.`;
+  }
+
   let strictInstructions = "";
   if (strategy === 'strict_fridge') {
     strictInstructions = `
@@ -84,6 +105,7 @@ export async function getNutritionalSuggestions(allowedFoods: string[], forbidde
   
   TAREA: Sugiere 3 platillos creativos para ${mealType.toUpperCase()}.
   ${strictInstructions}
+  ${timeInstructions}
   - CRÍTICO: DEBES RESPETAR AL 100% el plan de alimentación y las porciones (número de porciones de cada grupo) exactas correspondientes al momento (${mealType.toUpperCase()}) especificadas en el Patrón de porciones diarias proporcionado. NO INVENTES porciones ni uses grupos de alimentos que no correspondan a este momento o cuya cantidad recomendada sea 0.
   - Asegura Bajo Índice Glucémico y equilibrio nutricional.
   
