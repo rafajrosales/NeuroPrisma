@@ -19,7 +19,7 @@ export async function getNeuropsychologistInterpretation(logs: any[]) {
   try {
     console.log("Calling Gemini API for interpretation...");
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.1-flash-lite-preview",
       contents: prompt,
     });
     return response.text || "No se pudo generar la interpretación.";
@@ -41,7 +41,7 @@ export async function getAIDiaryDraft(logs: any[]) {
   try {
     console.log("Calling Gemini API for diary draft...");
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.1-flash-lite-preview",
       contents: prompt,
     });
     return response.text || "Error al redactar el borrador.";
@@ -96,40 +96,38 @@ export async function getNutritionalSuggestions(
   - BAJO NINGUNA CIRCUNSTANCIA uses alimentos de la lista de ALIMENTOS PROHIBIDOS.`;
   }
 
-  const prompt = `Actúa como un experto neuropsicólogo con especialidad en nutrición metabólica para perfiles TDAH/Autismo y Diabetes.
+  const prompt = `Actúa como un Nutricionista Jefe experto en Salud Metabólica y Neurodiversidad (TDAH/Autismo/Diabetes).
   
-  CONTEXTO DEL USUARIO:
-  - Alimentos SIEMPRE permitidos: ${allowedFoods.join(', ')}
-  - Alimentos ESTRICTAMENTE PROHIBIDOS: ${forbiddenFoods.join(', ') || 'Ninguno especificado'}
-  - Alimentos ACTUALMENTE en su REFRIGERADOR (usar estos prioritariamente): ${fridgeItems.join(', ') || 'El refrigerador está vacío'}
-  - Patrón de porciones diarias (Mapeo de comidas: 'colacion1' = colación matutina, 'colacion2' = colación vespertina): ${JSON.stringify(portionPlan)}
+  CONTEXTO:
+  - Permitidos: ${allowedFoods.join(', ')}
+  - Prohibidos: ${forbiddenFoods.join(', ') || 'Ninguno'}
+  - En Refrigerador: ${fridgeItems.join(', ') || 'Vacío'}
+  - Plan de Porciones: ${JSON.stringify(portionPlan)}
   
-  OBJETIVO: El usuario quiere preparar específicamente un(a): ${mealType.toUpperCase()}.
+  META: Sugerir 3 platillos para ${mealType.toUpperCase()}.
   
-  TAREA: Sugiere 3 platillos creativos para ${mealType.toUpperCase()}.
+  INSTRUCCIONES:
   ${strictInstructions}
   ${timeInstructions}
-  - CRÍTICO: DEBES RESPETAR AL 100% el plan de alimentación y las porciones (número de porciones de cada grupo) exactas correspondientes al momento (${mealType.toUpperCase()}) especificadas en el Patrón de porciones diarias proporcionado. NO INVENTES porciones ni uses grupos de alimentos que no correspondan a este momento o cuya cantidad recomendada sea 0.
-  - Asegura Bajo Índice Glucémico y equilibrio nutricional.
+  - Respeta estrictamente las porciones para ${mealType.toUpperCase()} del plan.
+  - Prioriza bajo índice glucémico.
   
-  Formato de respuesta (JSON estrictamente):
+  FORMATO JSON:
   [
     {
-      "name": "Nombre creativo del plato",
-      "ingredients": [ { "name": "Nombre Exacto 1", "quantity": "cantidad en tazas/piezas/cucharadas" } ], 
-      "instructions": "Instrucciones detalladas de preparación. DEBES ENUMERAR cada paso (1., 2., 3...) e incluir el TIEMPO ESTIMADO de cocción o preparación para cada uno de forma muy visible entre paréntesis, por ejemplo: '(15 min de cocción)' o '(5 min de preparación)'. Especifica las cantidades exactas a usar basándote en las porciones recomendadas.",
-      "rationale": "Breve explicación de por qué es bueno para el cerebro/glucosa"
+      "name": "Nombre del plato",
+      "ingredients": [ { "name": "Ingrediente exacto", "quantity": "cantidad calculada" } ], 
+      "instructions": "Pasos enumerados (1., 2...) con tiempo estimado por paso entre paréntesis.",
+      "rationale": "Beneficio metabólico/cognitivo"
     }
   ]
   
-  CRÍTICO: En el arreglo "ingredients", en "name" DEBES usar los NOMBRES EXACTOS Y LITERALES de la lista de permitidos. En "quantity", DEBES proponer la cantidad EXACTA Y ESTRICTA basándote matemáticamente en la recomendación de cantidad por porción multiplicada por la cantidad de porciones asignadas a ese grupo nutricional en el plan de alimentación para este momento (${mealType.toUpperCase()}). NUNCA excedas ni disminuyas lo que marca el plan de porciones. Nunca omitas "quantity".
-  
-  Responde SOLO con el JSON, sin texto adicional.`;
+  Calcula las cantidades basándote exactamente en el plan de porciones. Responde solo con el JSON.`;
 
   try {
-    console.log("Calling Gemini API for nutritional suggestions...");
+    console.log("Calling Gemini 3.1 Pro for nutritional suggestions...");
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.1-pro-preview",
       contents: prompt,
     });
 
@@ -150,32 +148,30 @@ export async function getWeeklyGrocerySuggestions(allowedFoods: string[], forbid
   }
 
   const ai = new GoogleGenAI({ apiKey: currentKey });
-  let prompt = `Actúa como un experto neuropsicólogo con especialidad en nutrición metabólica para perfiles TDAH/Autismo y Diabetes.
+  let prompt = `Actúa como un Nutricionista Jefe experto en Salud Metabólica.
   
-  CONTEXTO DEL USUARIO:
-  - Alimentos SIEMPRE permitidos: ${allowedFoods.join(', ')}
-  - Alimentos ESTRICTAMENTE PROHIBIDOS: ${forbiddenFoods.join(', ') || 'Ninguno especificado'}
-  - Alimentos ACTUALMENTE en su REFRIGERADOR: ${fridgeItems.join(', ') || 'El refrigerador está vacío'}
-  - Patrón de porciones diarias (número de porciones de cada grupo alimenticio recomendadas por comida): ${JSON.stringify(portionPlan)}
+  CONTEXTO:
+  - Alimentos Permitidos: ${allowedFoods.join(', ')}
+  - Alimentos Prohibidos: ${forbiddenFoods.join(', ') || 'Ninguno'}
+  - En Refrigerador: ${fridgeItems.join(', ') || 'Vacío'}
+  - Plan de Porciones: ${JSON.stringify(portionPlan)}
   
-  OBJETIVO: El usuario necesita una lista básica sugerida de mercado para la semana para cubrir SU PLAN DE ALIMENTACIÓN.
+  META: Lista de mercado para 1 persona (7 días).
   
-  TAREA: Analiza lo que hay en el refrigerador, si está vacío o incompleto, genera una lista de los ingredientes de la lista de ALIMENTOS PERMITIDOS faltantes para poder preparar comidas de desayuno, comida y cena para toda una semana respetando estrictamente el patrón de porciones diarias.
-  - El cálculo matemático de las cantidades DEBE SER RIGUROSAMENTE PARA 1 SOLA PERSONA durante 7 días.
-  - Da PREFERENCIA ESTRICTA a frutas y verduras FRESCAS y DE TEMPORADA.
-  - BAJO NINGUNA CIRCUNSTANCIA uses alimentos de la lista de ALIMENTOS PROHIBIDOS.
-  - Genera SÓLO ingredientes individuales y especifica la CAPACIDAD O CANTIDAD TOTAL que se necesitará para una semana (ej: "1 kg", "2 litros", "30 piezas").
-  - Ignora los ingredientes que el usuario ya tiene en el refrigerador a menos que creas que requieren re-stock.
+  INSTRUCCIONES:
+  - Sugiere qué comprar para cubrir el Plan de Porciones semanal considerando lo que falta en el refrigerador.
+  - Solo usa alimentos de la lista de Permitidos.
+  - Prefiere productos frescos.
   
-  Formato de respuesta (JSON estrictamente, arreglo de objetos):
-  [{"name": "Manzana", "quantity": "1.5 kg"}, {"name": "Pechuga de pollo", "quantity": "2 kg"}, {"name": "Leche de almendras", "quantity": "3 litros"}]
+  FORMATO JSON (Arreglo de objetos):
+  [{"name": "Producto", "quantity": "cantidad total (ej: 1 kg, 3 piezas)"}]
   
-  Responde SOLO con el JSON, sin texto adicional ni backticks de markdown.`;
+  Responde solo con el JSON.`;
 
   try {
-    console.log("Calling Gemini API for weekly groceries...");
+    console.log("Calling Gemini 3.1 Pro for weekly groceries...");
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.1-pro-preview",
       contents: prompt,
     });
 
