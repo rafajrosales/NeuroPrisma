@@ -82,7 +82,7 @@ export default function ExecutiveNavigator({ user }: { user: User }) {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
       
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: "gemini-1.5-flash-8b",
         contents: situation,
         config: {
           systemInstruction: `
