@@ -256,13 +256,19 @@ export default function NutritionModule({ user }: { user: User }) {
     fetchProfile();
   }, [user.uid]);
 
-  const sendDishToKitchen = async (dishName: string, items: FridgeItem[]) => {
+  const sendDishToKitchen = async (
+    dishName: string,
+    items: FridgeItem[],
+    providedInstructions?: string,
+  ) => {
     setIsSaving(true);
     try {
       const template = dishes.find(
-        (d) => d.name === dishName && d.status === "template",
+        (d) =>
+          d.name.trim().toLowerCase() === dishName.trim().toLowerCase() &&
+          d.status === "template",
       );
-      const instructions = template?.instructions || "";
+      const instructions = providedInstructions || template?.instructions || "";
 
       const batch = writeBatch(db);
       const dishRef = doc(
@@ -996,6 +1002,37 @@ export default function NutritionModule({ user }: { user: User }) {
     setIsSaving(false);
   };
 
+  const moveTemplateToKitchen = async (dish: NutritionalDish) => {
+    setIsSaving(true);
+    try {
+      // Buscar ingredientes en el refri (incluyendo básicos)
+      const matchedFridgeItems: FridgeItem[] = [];
+      for (const ing of dish.ingredients) {
+        const ingName = typeof ing === "string" ? ing : ing.name;
+        const fItem = fridge.find(
+          (f) =>
+            f.name.toLowerCase() === ingName.toLowerCase() &&
+            (!f.dishName || f.dishName === "Básicos" || f.dishName === dish.name),
+        );
+        if (fItem) matchedFridgeItems.push(fItem);
+      }
+
+      // Mandar a cocina
+      await sendDishToKitchen(dish.name, matchedFridgeItems, dish.instructions);
+      alert(
+        `👨‍🍳 ¡Platillo "${dish.name}" enviado a La Cocina para preparación!`,
+      );
+      setActiveTab("cocina");
+    } catch (err) {
+      handleFirestoreError(
+        err,
+        OperationType.WRITE,
+        `users/${user.uid}/nutritionalDishes/moveToKitchen`,
+      );
+    }
+    setIsSaving(false);
+  };
+
   const consumeDishIngredientsFromFridge = async (dish: NutritionalDish) => {
     const toRemoveIndices: string[] = [];
     const removedNames: string[] = [];
@@ -1621,7 +1658,11 @@ export default function NutritionModule({ user }: { user: User }) {
 
         if (matchedFridgeItems.length > 0) {
           // Si encontramos ingredientes en el refri, mandamos directo a cocina
-          await sendDishToKitchen(dish.name, matchedFridgeItems);
+          await sendDishToKitchen(
+            dish.name,
+            matchedFridgeItems,
+            dish.instructions,
+          );
           setSuggestedDishes((prev) =>
             prev.filter((d) => d.name !== dish.name),
           );
@@ -2152,9 +2193,11 @@ export default function NutritionModule({ user }: { user: User }) {
                               Pasos de preparación:
                             </p>
                             <div className="space-y-2.5">
-                              {dish.instructions
-                                .split(/(?=\d+\.)/)
-                                .filter(Boolean)
+                              {(dish.instructions.includes("1.")
+                                ? dish.instructions.split(/(?=\d+\.)/)
+                                : dish.instructions.split("\n")
+                              )
+                                .filter((s) => s.trim().length > 0)
                                 .map((step, idx) => {
                                   const stepMatch =
                                     step.match(/(\d+)\.\s*(.*)/);
@@ -3263,6 +3306,14 @@ export default function NutritionModule({ user }: { user: User }) {
                                 {dish.name}
                               </h4>
                               <div className="flex gap-2">
+                                <button
+                                  onClick={() => moveTemplateToKitchen(dish)}
+                                  disabled={isSaving}
+                                  className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                                  title="Enviar a cocina para preparar"
+                                >
+                                  <Zap className="w-4 h-4" />
+                                </button>
                                 <button
                                   onClick={() =>
                                     consumeDishIngredientsFromFridge(dish)
