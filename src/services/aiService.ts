@@ -70,9 +70,12 @@ export async function getNutritionalSuggestions(
   let timeInstructions = "";
   if (prepTime === 'rápido') {
     timeInstructions = `
-  - TIEMPO: EL USUARIO TIENE PRISA. Sugiere platillos EXTREMADAMENTE RÁPIDOS (máximo 5-10 min).
-  - CRÍTICO: NO deben requerir cocción (no usar estufa/horno si es posible, preferir preparaciones frías, ensaladas, wraps, batidos o cosas que solo requieran ensamblar).
-  - "No cocer cosas" es la prioridad.`;
+  - TIEMPO: EL USUARIO TIENE MUCHA PRISA (MODO EXPRESS).
+  - REGLA DE ORO: 0 MINUTOS DE COCCIÓN. NO USAR ESTUFA, HORNO NI HERVIR AGUA.
+  - INGREDIENTES: ASUME QUE TODOS LOS INGREDIENTES ESTÁN CRUDOS/NATURALES. No asumas que hay arroz cocido, papas cocidas o legumbres preparadas.
+  - PROHIBIDO: No sugieras arroz, pasta, legumbres secas, papas o carnes que requieran más de 5 min de cocción.
+  - PERMITIDO: Ensaladas crudas, wraps (usando tortillas frías o lechuga), batidos, yogur con semillas/fruta, tostadas de arroz/maíz con ingredientes listos (atún en lata, queso, aguacate, jamón), verduras crudas.
+  - El platillo debe poder "ensamblarse" y comerse en máximo 5 minutos.`;
   } else if (prepTime === 'elaborado') {
     timeInstructions = `
   - TIEMPO: EL USUARIO TIENE TIEMPO. Sugiere platillos más elaborados y nutritivos que puedan requerir cocción lenta, horneado o técnicas más complejas.
