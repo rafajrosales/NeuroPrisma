@@ -289,7 +289,7 @@ export default function NutritionModule({ user }: { user: User }) {
 
   const parseConversionInfo = (notes: string) => {
     if (!notes) return null;
-    const match = notes.match(/(?:Porción:\s*)?([\d\s\/]+)(?:de\s+)?(taza|cucharada|cucharadita|pieza|lata)(?:s)?\s*(?:\(~([\d\.]+)(g|ml)[^\)]*\))?/i);
+    const match = notes.match(/(?:Porción:\s*)?([\d\s\/]+)(?:de\s+)?(taza|cucharada|cucharadita|pieza|pza|lata|l|litro|g|gramos|ml)(?:s)?\s*(?:\(~([\d\.]+)(g|ml)[^\)]*\))?/i);
     if (!match) return null;
     
     let qtyStr = match[1].trim();
@@ -1205,22 +1205,22 @@ export default function NutritionModule({ user }: { user: User }) {
     <button
       onClick={() => setActiveTab(id)}
       className={cn(
-        "flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl sm:rounded-2xl text-[10px] sm:text-xs font-bold uppercase tracking-widest transition-all",
+        "flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 p-3 sm:px-6 sm:py-3 rounded-2xl text-[9px] sm:text-xs font-bold uppercase tracking-tight sm:tracking-widest transition-all min-w-[80px] sm:min-w-0 transition-all active:scale-95",
         activeTab === id 
-          ? "bg-primary text-white shadow-lg shadow-primary/20" 
+          ? "bg-primary text-white shadow-lg shadow-primary/20 scale-105 sm:scale-100" 
           : "text-text-muted hover:bg-surface hover:text-text-main"
       )}
     >
-      <Icon className="w-4 h-4 shrink-0" />
-      <span className={cn(activeTab === id ? "inline" : "hidden sm:inline")}>{label}</span>
+      <Icon className="w-4 h-4 shrink-0 transition-transform" />
+      <span className="leading-none text-center">{label === 'Refrigerador' ? 'Refri' : label}</span>
     </button>
   );
 
   return (
     <div className="space-y-6 md:space-y-8 max-w-6xl mx-auto pb-24 px-2 sm:px-0">
       {/* Navigation Tabs */}
-      <div className="w-full flex justify-center mb-10 mt-4 overflow-hidden">
-        <div className="flex flex-wrap justify-center items-center gap-1.5 sm:gap-2 bg-surface p-1.5 sm:p-2 rounded-[2rem] border border-border shadow-md max-w-full">
+      <div className="w-full flex justify-center mb-10 mt-4">
+        <div className="grid grid-cols-3 sm:flex sm:flex-wrap items-center justify-center gap-1 sm:gap-2 bg-surface p-1.5 sm:p-2 rounded-[2.5rem] border border-border shadow-lg max-w-full sm:w-fit">
           <TabButton id="mercado" label="Mercado" icon={ListChecks} />
           <TabButton id="cocina" label="Cocina" icon={Sparkles} />
           <TabButton id="refrigerador" label="Refri" icon={Package} />
@@ -1691,29 +1691,37 @@ export default function NutritionModule({ user }: { user: User }) {
 
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                             {items.map(item => (
-                              <button 
-                                key={item.id} 
-                                onClick={() => toggleFridgeCheck(item)}
-                                className={cn(
-                                  "flex items-center gap-3 p-4 border rounded-2xl transition-all text-left",
-                                  item.confirmed 
-                                    ? "bg-primary/5 border-primary/20" 
-                                    : "bg-background border-border hover:border-primary/20"
-                                )}
-                              >
-                                <div className={cn(
-                                  "w-5 h-5 rounded border flex items-center justify-center transition-colors",
-                                  item.confirmed ? "bg-primary border-primary text-white" : "bg-white border-border text-transparent"
-                                )}>
-                                  <CheckCircle2 className="w-3 h-3" />
-                                </div>
-                                <div className="flex flex-col">
-                                  <span className={cn("text-sm font-bold", item.confirmed ? "text-primary" : "text-text-main")}>
-                                    {item.name} {item.quantity && <span className="text-primary font-black ml-1 text-[10px]">({item.quantity})</span>}
-                                  </span>
-                                  <span className="text-[9px] font-black text-text-muted uppercase tracking-tighter">{item.category}</span>
-                                </div>
-                              </button>
+                              <div key={item.id} className="relative group/fridge-item">
+                                <button 
+                                  onClick={() => toggleFridgeCheck(item)}
+                                  className={cn(
+                                    "flex items-center gap-3 p-4 border rounded-2xl transition-all text-left w-full",
+                                    item.confirmed 
+                                      ? "bg-primary/5 border-primary/20" 
+                                      : "bg-background border-border hover:border-primary/20"
+                                  )}
+                                >
+                                  <div className={cn(
+                                    "w-5 h-5 rounded border flex items-center justify-center transition-colors",
+                                    item.confirmed ? "bg-primary border-primary text-white" : "bg-white border-border text-transparent"
+                                  )}>
+                                    <CheckCircle2 className="w-3 h-3" />
+                                  </div>
+                                  <div className="flex flex-col pr-8">
+                                    <span className={cn("text-sm font-bold", item.confirmed ? "text-primary" : "text-text-main")}>
+                                      {item.name} {item.quantity && <span className="text-primary font-black ml-1 text-[10px]">({item.quantity})</span>}
+                                    </span>
+                                    <span className="text-[9px] font-black text-text-muted uppercase tracking-tighter">{item.category}</span>
+                                  </div>
+                                </button>
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); removeFromFridge(item.id); }}
+                                  className="absolute top-1/2 -translate-y-1/2 right-3 p-2 text-text-muted opacity-40 hover:opacity-100 hover:text-rose-600 transition-all sm:opacity-0 sm:group-hover/fridge-item:opacity-100"
+                                  title="Eliminar de mi refrigerador"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             ))}
                           </div>
                         </div>
