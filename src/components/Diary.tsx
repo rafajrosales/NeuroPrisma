@@ -9,7 +9,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { getAIDiaryDraft } from '../services/aiService';
 
-export default function Diary({ user }: { user: User }) {
+export default function Diary({ user, isOnline }: { user: User, isOnline: boolean }) {
   const [entries, setEntries] = useState<any[]>([]);
   const [content, setContent] = useState('');
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
@@ -23,6 +23,10 @@ export default function Diary({ user }: { user: User }) {
   }, []);
 
   const handleAIDraft = async () => {
+    if (!isOnline) {
+      alert("La IA requiere conexión a internet para redactar. Reintenta cuando vuelvas a estar en línea.");
+      return;
+    }
     setIsDrafting(true);
     try {
       // Get recent emotional logs to context the draft

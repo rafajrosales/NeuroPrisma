@@ -11,7 +11,7 @@ import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { useSpeech } from '../hooks/useSpeech';
 
-export default function ReportsAndDiary({ user }: { user: User }) {
+export default function ReportsAndDiary({ user, isOnline }: { user: User, isOnline: boolean }) {
   const [view, setView] = useState<'tracker' | 'reports' | 'diary'>('tracker');
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -57,6 +57,10 @@ export default function ReportsAndDiary({ user }: { user: User }) {
 
   const handleGenerateInterpretation = async () => {
     if (filteredLogs.length === 0) return;
+    if (!isOnline) {
+      alert("La IA requiere conexión a internet para analizar tus registros. Reintenta cuando vuelvas a estar en línea.");
+      return;
+    }
     setLoading(true);
     const analysis = await getNeuropsychologistInterpretation(filteredLogs);
     
@@ -377,7 +381,7 @@ export default function ReportsAndDiary({ user }: { user: User }) {
             </div>
           )}
           
-          {view === 'diary' && <Diary user={user} />}
+          {view === 'diary' && <Diary user={user} isOnline={isOnline} />}
         </motion.div>
       </AnimatePresence>
     </div>

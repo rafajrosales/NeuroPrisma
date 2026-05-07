@@ -1,11 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
 
 function getApiKey() {
-  // Vite reemplazará estas variables en tiempo de compilación si están en 'define' o '.env'
-  const key = (import.meta as any).env.VITE_GEMINI_API_KEY || 
-              (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '') || 
-              '';
-  return key;
+  // En AI Studio Build, GEMINI_API_KEY se inyecta en process.env
+  return process.env.GEMINI_API_KEY || '';
 }
 
 export async function getNeuropsychologistInterpretation(logs: any[]) {
@@ -19,7 +16,7 @@ export async function getNeuropsychologistInterpretation(logs: any[]) {
   try {
     console.log("Calling Gemini API for interpretation...");
     const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-3-flash-preview",
       contents: prompt,
     });
     return response.text || "No se pudo generar la interpretación.";
@@ -41,7 +38,7 @@ export async function getAIDiaryDraft(logs: any[]) {
   try {
     console.log("Calling Gemini API for diary draft...");
     const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-3-flash-preview",
       contents: prompt,
     });
     return response.text || "Error al redactar el borrador.";
@@ -125,9 +122,9 @@ export async function getNutritionalSuggestions(
   Calcula las cantidades basándote exactamente en el plan de porciones. Responde solo con el JSON.`;
 
   try {
-    console.log("Calling Gemini 1.5 Flash for nutritional suggestions...");
+    console.log("Calling Gemini 3 Flash for nutritional suggestions...");
     const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-3-flash-preview",
       contents: prompt,
     });
 
@@ -169,9 +166,9 @@ export async function getWeeklyGrocerySuggestions(allowedFoods: string[], forbid
   Responde solo con el JSON.`;
 
   try {
-    console.log("Calling Gemini 1.5 Flash for weekly groceries...");
+    console.log("Calling Gemini 3 Flash for weekly groceries...");
     const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
+      model: "gemini-3-flash-preview",
       contents: prompt,
     });
 

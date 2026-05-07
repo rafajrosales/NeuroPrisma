@@ -19,6 +19,7 @@ import Logo from './Logo';
 
 interface DashboardProps {
   user: FirebaseUser;
+  isOnline: boolean;
 }
 
 type View = 'dashboard' | 'calendar' | 'pomodoro' | 'profile' | 'settings' | 'emotions' | 'nutrition' | 'executive' | 'about';
@@ -36,7 +37,7 @@ const MOTIVATIONAL_PHRASES = [
   "La calma no es la ausencia de caos, es el control sobre tu respuesta."
 ];
 
-export default function Dashboard({ user }: DashboardProps) {
+export default function Dashboard({ user, isOnline }: DashboardProps) {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [alarmSound, setAlarmSound] = useState<AlarmSound>('gentle');
   const [alarmMaxVolume, setAlarmMaxVolume] = useState(0.7);
@@ -155,8 +156,8 @@ export default function Dashboard({ user }: DashboardProps) {
         <main className="flex-1 bg-background flex flex-col overflow-hidden relative">
           <div className="flex-1 overflow-y-auto p-4 sm:p-10 custom-scrollbar pb-32 md:pb-10">
             {currentView === 'profile' && <Profile user={user} />}
-            {currentView === 'nutrition' && <NutritionModule user={user} />}
-            {currentView === 'executive' && <ExecutiveNavigator user={user} />}
+            {currentView === 'nutrition' && <NutritionModule user={user} isOnline={isOnline} />}
+            {currentView === 'executive' && <ExecutiveNavigator user={user} isOnline={isOnline} />}
             {currentView === 'about' && <About />}
             
             {currentView === 'settings' && (
@@ -211,7 +212,7 @@ export default function Dashboard({ user }: DashboardProps) {
               </div>
             )}
             
-            {currentView === 'emotions' && <ReportsAndDiary user={user} />}
+            {currentView === 'emotions' && <ReportsAndDiary user={user} isOnline={isOnline} />}
 
             {currentView === 'calendar' && (
                <Calendar events={events} user={user} onAddEvent={addEvent} onRemoveEvent={removeEvent} onUpdateEvent={updateEvent} />

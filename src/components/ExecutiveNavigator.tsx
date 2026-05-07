@@ -43,7 +43,7 @@ interface Analysis {
   createdAt: Date;
 }
 
-export default function ExecutiveNavigator({ user }: { user: User }) {
+export default function ExecutiveNavigator({ user, isOnline }: { user: User, isOnline: boolean }) {
   const [situation, setSituation] = useState('');
   const [isAnalysing, setIsAnalysing] = useState(false);
   const [analyses, setAnalyses] = useState<Analysis[]>([]);
@@ -76,13 +76,17 @@ export default function ExecutiveNavigator({ user }: { user: User }) {
 
   const handleAnalise = async () => {
     if (!situation.trim()) return;
+    if (!isOnline) {
+      alert("La IA requiere conexión a internet para el análisis. Reintenta cuando vuelvas a estar en línea.");
+      return;
+    }
     setIsAnalysing(true);
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
       
       const response = await ai.models.generateContent({
-        model: "gemini-1.5-flash",
+        model: "gemini-3-flash-preview",
         contents: situation,
         config: {
           systemInstruction: `

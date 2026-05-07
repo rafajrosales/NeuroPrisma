@@ -143,7 +143,7 @@ interface FridgeItem {
   confirmed?: boolean;
 }
 
-export default function NutritionModule({ user }: { user: User }) {
+export default function NutritionModule({ user, isOnline }: { user: User, isOnline: boolean }) {
   const [activeTab, setActiveTab] = useState<Tab>("cocina");
   const [foods, setFoods] = useState<FoodItem[]>([]);
   const [dishes, setDishes] = useState<NutritionalDish[]>([]);
@@ -1957,7 +1957,14 @@ export default function NutritionModule({ user }: { user: User }) {
 
                 <div className="flex flex-col gap-2">
                   <button
-                    onClick={generateWeeklyGroceries}
+                    type="button"
+                    onClick={() => {
+                      if (!isOnline) {
+                        alert("La IA requiere conexión a internet para sugerencia semanal. Reintenta cuando vuelvas a estar en línea.");
+                        return;
+                      }
+                      generateWeeklyGroceries();
+                    }}
                     disabled={isGeneratingMarket}
                     className="px-6 py-3 bg-emerald-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-emerald-600/20 hover:bg-emerald-700 transition-all disabled:opacity-50 flex items-center gap-2 justify-center"
                   >
@@ -3096,7 +3103,13 @@ export default function NutritionModule({ user }: { user: User }) {
                   <div className="grid grid-cols-1 gap-3">
                     <button
                       type="button"
-                      onClick={generateDishFromFridgeIngredients}
+                      onClick={() => {
+                        if (!isOnline) {
+                          alert("La IA requiere conexión a internet. Reintenta cuando vuelvas a estar en línea.");
+                          return;
+                        }
+                        generateDishFromFridgeIngredients();
+                      }}
                       disabled={isGenerating}
                       className="w-full py-4 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-emerald-700 transition-all disabled:opacity-30 flex items-center justify-center gap-2"
                     >
@@ -3109,7 +3122,13 @@ export default function NutritionModule({ user }: { user: User }) {
                     </button>
                     <button
                       type="button"
-                      onClick={handleGenerateSuggestions}
+                      onClick={() => {
+                        if (!isOnline) {
+                          alert("La IA requiere conexión a internet. Reintenta cuando vuelvas a estar en línea.");
+                          return;
+                        }
+                        handleGenerateSuggestions();
+                      }}
                       disabled={isGenerating}
                       className="w-full py-3 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-xl transition-all disabled:opacity-30 flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest border border-indigo-100"
                     >
